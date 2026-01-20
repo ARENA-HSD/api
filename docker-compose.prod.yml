@@ -1,0 +1,54 @@
+services:
+  # --- ELYSIA APP (PROD) ---
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile # Production için olan, multi-stage Dockerfile
+    container_name: arena-backend-prod
+    restart: always
+    ports:
+      - "${API_PORT:-3000}:3000"
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - NODE_ENV=production
+    # Production'da volumes ile kod bağlamıyoruz, kod imajın içine gömüldü.
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - arena-network
+
+  # --- POSTGRES (PROD) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: arena-postgres-prod
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    # Production'da portları dışarı açmıyoruz, sadece API konteyneri erişebilir.
+    volumes:
+      - postgres_data_prod:/var/lib/postgresql/data
+    networks:
+      - arena-network
+
+  # --- REDIS (PROD) ---
+  redis:
+    image: redis:alpine
+    container_name: arena-redis-prod
+    restart: always
+    # Port mapping yok, sadece iç ağdan erişim.
+    volumes:
+      - redis_data_prod:/data
+    networks:
+      - arena-network
+
+networks:
+  arena-network:
+    driver: bridge
+
+volumes:
+  postgres_data_prod:
+  redis_data_prod:

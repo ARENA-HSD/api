@@ -1,0 +1,15 @@
+# Dockerfile.dev
+FROM oven/bun:1 AS base
+WORKDIR /app
+
+# Cache katmanları
+COPY package.json bun.lock ./
+RUN bun install
+
+# Kodları kopyala
+COPY . .
+
+EXPOSE 3000
+
+# DİKKAT: Burada ENTRYPOINT kullanma. Sadece CMD kullan veya boş bırak.
+# Komutu docker-compose.yml dosyasından yönetiyoruz.

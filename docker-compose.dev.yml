@@ -1,0 +1,59 @@
+services:
+  # --- ELYSIA APP (DEV) ---
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev # Geliştirme için olan Dockerfile'ı kullanır
+    container_name: arena-backend-dev
+    restart: unless-stopped
+    ports:
+      - "${API_PORT:-3000}:3000" # .env'de yoksa varsayılan 3000
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - NODE_ENV=development
+    volumes:
+      - .:/app             # Kodunu içeri yansıtır (Hot Reload için şart)
+      - /app/node_modules  # Konteynerin kendi modüllerini korur (ÖNEMLİ)
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - arena-network
+    command: ["bun", "run", "--watch", "src/index.ts"]
+
+  # --- POSTGRES (DEV) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: arena-postgres-dev
+    restart: always
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    ports:
+      - "5432:5432" # Geliştirme yaparken DB araçlarıyla bağlanabilmen için port açık
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    networks:
+      - arena-network
+
+  # --- REDIS (DEV) ---
+  redis:
+    image: redis:alpine
+    container_name: arena-redis-dev
+    restart: always
+    ports:
+      - "6379:6379" # Geliştirme yaparken Redis GUI ile bakabilmen için açık
+    volumes:
+      - redis_data_dev:/data
+    networks:
+      - arena-network
+
+networks:
+  arena-network:
+    driver: bridge
+
+volumes:
+  postgres_data_dev:
+  redis_data_dev:
