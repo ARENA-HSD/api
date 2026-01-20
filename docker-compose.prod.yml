@@ -14,8 +14,10 @@ services:
       - NODE_ENV=production
     # Production'da volumes ile kod bağlamıyoruz, kod imajın içine gömüldü.
     depends_on:
-      - postgres
-      - redis
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
     networks:
       - arena-network
 
@@ -33,6 +35,11 @@ services:
       - postgres_data_prod:/var/lib/postgresql/data
     networks:
       - arena-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   # --- REDIS (PROD) ---
   redis:
@@ -44,6 +51,11 @@ services:
       - redis_data_prod:/data
     networks:
       - arena-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
 networks:
   arena-network:
