@@ -1,7 +1,9 @@
 import { Elysia } from "elysia";
 import { db, schema } from "./db";
+import { openapi } from '@elysiajs/openapi'
 
 const app = new Elysia()
+  .use(openapi())
   .get("/", () => "API is working.")
   .get("/db-health", async () => {
     try {
