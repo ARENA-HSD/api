@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, varchar, integer } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, text, varchar, integer, jsonb } from 'drizzle-orm/pg-core';
 import { quizzes } from './quizzes';
 
 export const questions = pgTable('questions', {
@@ -7,9 +7,12 @@ export const questions = pgTable('questions', {
     .notNull()
     .references(() => quizzes.id, { onDelete: 'cascade' }),
   text: text('text').notNull(),
-  imageUrl: varchar('image_url', { length: 500 }),
-  timeLimit: integer('time_limit').notNull().default(30), // seconds
+  mediaUrl: varchar('media_url', { length: 500 }),
+  timeLimit: integer('time_limit').notNull(),
+  points: integer('points').default(1000),
+  correctIndex: integer('correct_index').notNull(),
   orderIndex: integer('order_index').notNull(),
+  options: jsonb('options').notNull(),
 });
 
 export type Question = typeof questions.$inferSelect;
