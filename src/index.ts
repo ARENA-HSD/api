@@ -1,27 +1,77 @@
+import { RedisClient } from "bun";
 import { Elysia } from "elysia";
 import { db, schema } from "./db";
-import { openapi } from '@elysiajs/openapi'
+import { openapi } from "@elysiajs/openapi";
+import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, sessionsRoutes } from "./routes";
+
+const redisClient = new RedisClient();
 
 const app = new Elysia()
-  .use(openapi())
-  .get("/", () => "API is working.")
+  .use(openapi({
+      documentation: {
+        info: {
+          title: "ARENA API",
+          version: "1.0.0",
+          description: "API documentation for the ARENA application."
+        },
+        tags: [
+                { name: 'User Operations', description: 'User related endpoints' },
+                { name: 'Session Operations', description: 'Authentication and session endpoints' },
+                { name: 'Organization Operations', description: 'Organization related endpoints' },
+                { name: 'Quiz Operations', description: 'Quiz related endpoints' },
+                { name: 'Question Operations', description: 'Question related endpoints' },
+                { name: 'Game Operations', description: 'Game related endpoints' },
+            ]
+
+      },
+    }))
+  .use(usersRoutes)
+  .use(sessionsRoutes)
+  .use(orgRoutes)
+  .use(quizzesRoutes)
+  .use(questionsRoutes)
+  .use(gamesRoutes)
+  .get("/", () => { return "API is working."; },{detail: { summary: 'Main endpoint' }})
   .get("/db-health", async () => {
+    const timestamp = new Date().toISOString();
+
+    let databaseStatus: "connected" | "disconnected" = "connected";
+    let databaseError: string | undefined;
     try {
-      // Test database connection by counting organizations
-      const result = await db.select().from(schema.organizations).limit(1);
-      return {
-        status: "healthy",
-        database: "connected",
-        timestamp: new Date().toISOString(),
-      };
+      await db.select().from(schema.organizations).limit(1);
     } catch (error) {
-      return {
-        status: "error",
-        database: "disconnected",
-        error: error instanceof Error ? error.message : "Unknown error",
-        timestamp: new Date().toISOString(),
-      };
+      databaseStatus = "disconnected";
+      databaseError = error instanceof Error ? error.message : "Unknown error";
     }
+
+    let redisStatus: "connected" | "disconnected" | "error" = "connected";
+    let redisError: string | undefined;
+    try {
+      if (!redisClient.connected) {
+        await redisClient.connect();
+      }
+      const pong = await redisClient.send("PING", []);
+      if (pong !== "PONG") {
+        redisStatus = "error";
+        redisError = `Unexpected PING response: ${String(pong)}`;
+      }
+    } catch (error) {
+      redisStatus = "disconnected";
+      redisError = error instanceof Error ? error.message : "Unknown error";
+    }
+
+    const status = databaseStatus === "connected" && redisStatus === "connected" ? "healthy" : "error";
+
+    return {
+      status,
+      database: databaseStatus,
+      redis: redisStatus,
+      ...(databaseError ? { databaseError } : {}),
+      ...(redisError ? { redisError } : {}),
+      timestamp,
+    };
+  },{
+    detail: { summary: 'Database health check endpoint' }
   })
   .listen(3000);
 
