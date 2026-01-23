@@ -45,12 +45,19 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
       }),
       response: t.Object({
         success: t.Boolean(),
-        data: t.Optional(t.Any()),
+        data: t.Optional(t.Object({
+          user: t.Object({
+            id: t.String({ format: "uuid" }),
+            username: t.String(),
+            email: t.String({ format: "email" }),
+          }),
+          token: t.String(),
+        })),
         message: t.Optional(t.String()),
       }),
       detail: {
         summary: "Create user and return token",
-        tags: ["User Operations", "Session Operations"],
+        tags: ["User Operations", "Auth Operations"],
       },
     }
   )

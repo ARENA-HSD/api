@@ -2,7 +2,7 @@ import { RedisClient } from "bun";
 import { Elysia } from "elysia";
 import { db, schema } from "./db";
 import { openapi } from "@elysiajs/openapi";
-import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, sessionsRoutes } from "./routes";
+import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, loginRoutes } from "./routes";
 
 const redisClient = new RedisClient();
 
@@ -16,7 +16,7 @@ const app = new Elysia()
         },
         tags: [
                 { name: 'User Operations', description: 'User related endpoints' },
-                { name: 'Session Operations', description: 'Authentication and session endpoints' },
+                { name: 'Auth Operations', description: 'Authentication and login endpoints' },
                 { name: 'Organization Operations', description: 'Organization related endpoints' },
                 { name: 'Quiz Operations', description: 'Quiz related endpoints' },
                 { name: 'Question Operations', description: 'Question related endpoints' },
@@ -26,7 +26,7 @@ const app = new Elysia()
       },
     }))
   .use(usersRoutes)
-  .use(sessionsRoutes)
+  .use(loginRoutes)
   .use(orgRoutes)
   .use(quizzesRoutes)
   .use(questionsRoutes)

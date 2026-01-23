@@ -3,7 +3,7 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "../../db";
 import { signUserToken, toPublicUser } from "../../lib/auth";
 
-export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
+export const loginRoutes = new Elysia({ prefix: "/login" })
 	.post(
 		"/",
 		async ({ body, set }) => {
@@ -43,12 +43,19 @@ export const sessionsRoutes = new Elysia({ prefix: "/sessions" })
 			}),
 			response: t.Object({
 				success: t.Boolean(),
-				data: t.Optional(t.Any()),
+				data: t.Optional(t.Object({
+					user: t.Object({
+						id: t.String({ format: "uuid" }),
+						username: t.String(),
+						email: t.String({ format: "email" }),
+					}),
+					token: t.String(),
+				})),
 				message: t.Optional(t.String()),
 			}),
 			detail: {
 				summary: "Authenticate user and issue JWT",
-				tags: ["Session Operations"],
+				tags: ["Auth Operations"],
 			},
 		}
 	);
