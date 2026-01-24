@@ -25,7 +25,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
 	        tags: ['Organization Operations'] 
 	  } 
     })
-  .delete("/:orgId",  async ({ set, params, headers, cookie }) => {
+  .delete("/:orgDomain",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
@@ -41,7 +41,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
 	        tags: ['Organization Operations'] 
 	  } 
     })
-  .patch("/:orgId",  async ({ set, params, headers, cookie }) => {
+  .patch("/:orgDomain",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
@@ -65,7 +65,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
 	        tags: ['Organization Operations'] 
 	  } 
     })
-  .get("/:orgId",  async ({ set, params, headers, cookie }) => {
+  .get("/:orgDomain",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
@@ -77,7 +77,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Get organization by ID', 
+	        summary: 'Get organization by subdomain', 
 	        tags: ['Organization Operations'] 
 	  } 
     })

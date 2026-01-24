@@ -2,7 +2,7 @@ import { RedisClient } from "bun";
 import { Elysia } from "elysia";
 import { db, schema } from "./db";
 import { openapi } from "@elysiajs/openapi";
-import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, loginRoutes } from "./routes";
+import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, loginRoutes, invitationsRoutes } from "./routes";
 
 const redisClient = new RedisClient();
 
@@ -21,6 +21,7 @@ const app = new Elysia()
                 { name: 'Quiz Operations', description: 'Quiz related endpoints' },
                 { name: 'Question Operations', description: 'Question related endpoints' },
                 { name: 'Game Operations', description: 'Game related endpoints' },
+                { name: 'Invitation Operations', description: 'Invitation related endpoints' },
             ]
 
       },
@@ -30,6 +31,7 @@ const app = new Elysia()
   .use(orgRoutes)
   .use(quizzesRoutes)
   .use(questionsRoutes)
+  .use(invitationsRoutes)
   .use(gamesRoutes)
   .get("/", () => { return "API is working."; },{detail: { summary: 'Main endpoint' }})
   .get("/db-health", async () => {

@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 
-export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
+export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitations" })
   .post("/",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
@@ -8,8 +8,7 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
     },
     {
       body: t.Object({
-        title: t.String(),
-        defaultMode: t.String({ enum: ["PERSONAL", "STAGE"] }),
+        inviteeUsername: t.String(),
       }),
       response: t.Object({
         success: t.Boolean(),
@@ -17,11 +16,12 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Create the quiz', 
-	        tags: ['Quiz Operations'] 
+	        summary: 'Create the invitation', 
+            description: 'Cookieden inviterId alırsınız. orgDomain parametreden gelir. usernamdende inviteeId bulunur ve davet oluşturulur.',
+	        tags: ['Invitation Operations'] 
 	  } 
     })
-  .delete("/:quizId",  async ({ set, params, headers, cookie }) => {
+  .delete("/:invitationId",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
@@ -33,19 +33,18 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Delete the quiz', 
-	        tags: ['Quiz Operations'] 
+	        summary: 'Delete the invitation', 
+	        tags: ['Invitation Operations'] 
 	  } 
     })
-  .patch("/:quizId",  async ({ set, params, headers, cookie }) => {
+  .patch("/:invitationId",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
     },
     {
       body: t.Object({
-        title: t.Optional(t.String()),
-        defaultMode: t.Optional(t.String({ enum: ["PERSONAL", "STAGE"] })),
+        status: t.Optional(t.String()),
       }),
       response: t.Object({
         success: t.Boolean(),
@@ -53,11 +52,11 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Update the quiz', 
-	        tags: ['Quiz Operations'] 
+	        summary: 'Update the invitation', 
+	        tags: ['Invitation Operations'] 
 	  } 
     })
-  .get("/:quizId",  async ({ set, params, headers, cookie }) => {
+  .get("/:invitationId",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
       };
@@ -69,8 +68,8 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Get quiz by ID', 
-	        tags: ['Quiz Operations'] 
+	        summary: 'Get invitation by ID', 
+	        tags: ['Invitation Operations'] 
 	  } 
     })
   .get("/",  async ({ set, params, headers, cookie }) => {
@@ -85,7 +84,7 @@ export const quizzesRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes" })
         message: t.Optional(t.String()),
       }),
       detail: { 
-	        summary: 'Get all quizzes', 
-	        tags: ['Quiz Operations'] 
+	        summary: 'Get all invitations for the organization', 
+	        tags: ['Invitation Operations'] 
 	  } 
     });

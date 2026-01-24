@@ -1,6 +1,6 @@
 import { Elysia, t } from "elysia";
 
-export const questionsRoutes = new Elysia({ prefix: "/org/:orgId/quizzes/:quizId/questions" })
+export const questionsRoutes = new Elysia({ prefix: "/org/:orgDomain/quizzes/:quizId/questions" })
   .post("/",  async ({ set, params, headers, cookie }) => {
       return {
         success: true
