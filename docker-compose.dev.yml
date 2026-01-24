@@ -61,6 +61,18 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+  pgweb:
+    image: ghcr.io/sosedoff/pgweb:latest
+    container_name: arena-pgweb-dev
+    ports:
+      - 8081:8081
+    networks:
+      - arena-network
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
 
 networks:
   arena-network:
