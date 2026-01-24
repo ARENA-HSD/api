@@ -1,12 +1,16 @@
 import { Elysia, t } from "elysia";
+import bearer from "@elysiajs/bearer";
+import jwtPlugin from "@elysiajs/jwt";
 import { eq } from "drizzle-orm";
 import { db, schema } from "../../db";
-import { signUserToken, toPublicUser } from "../../lib/auth";
+import { jwtConfig, toPublicUser } from "../../lib/auth";
 
 export const loginRoutes = new Elysia({ prefix: "/login" })
+  .use(bearer())
+  .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
 	.post(
 		"/",
-		async ({ body, set }) => {
+		async ({ body, set, jwt }) => {
 			const { email, password } = body;
 
 			const [user] = await db
@@ -26,7 +30,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 				return { success: false, message: "Invalid credentials" };
 			}
 
-			const token = signUserToken({ id: user.id, email: user.email });
+			const token = await jwt.sign({ sub: user.id, email: user.email });
 
 			return {
 				success: true,
