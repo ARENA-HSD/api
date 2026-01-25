@@ -119,7 +119,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
     },
     {
       params: t.Object({ id: t.String({ format: "uuid" }) }),
-      headers: t.Object({ Authorization: t.String() }),
+      headers: t.Object({ Authorization: t.Optional(t.String()) }),
       response: t.Object({
         success: t.Boolean(),
         data: t.Optional(t.Object({ id: t.String({ format: "uuid" }) })),
@@ -198,7 +198,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
     },
     {
       params: t.Object({ id: t.String({ format: "uuid" }) }),
-      headers: t.Object({ Authorization: (t.String()) }),
+      headers: t.Object({ Authorization: t.Optional(t.String()) }),
       body: t.Object({
         name: t.Optional(t.String()),
         email: t.Optional(t.String({ format: "email" })),
