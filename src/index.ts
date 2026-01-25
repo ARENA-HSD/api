@@ -8,24 +8,35 @@ const redisClient = new RedisClient();
 
 const app = new Elysia()
   .use(openapi({
-      documentation: {
-        info: {
-          title: "ARENA API",
-          version: "1.0.0",
-          description: "API documentation for the ARENA application."
-        },
-        tags: [
-                { name: 'User Operations', description: 'User related endpoints' },
-                { name: 'Auth Operations', description: 'Authentication and login endpoints' },
-                { name: 'Organization Operations', description: 'Organization related endpoints' },
-                { name: 'Quiz Operations', description: 'Quiz related endpoints' },
-                { name: 'Question Operations', description: 'Question related endpoints' },
-                { name: 'Game Operations', description: 'Game related endpoints' },
-                { name: 'Invitation Operations', description: 'Invitation related endpoints' },
-            ]
-
+    documentation: {
+      info: {
+        title: "ARENA API",
+        version: "1.0.0",
+        description: "API documentation for the ARENA application."
       },
-    }))
+      tags: [
+        { name: 'User Operations', description: 'User related endpoints' },
+        { name: 'Auth Operations', description: 'Authentication and login endpoints' },
+        { name: 'Organization Operations', description: 'Organization related endpoints' },
+        { name: 'Quiz Operations', description: 'Quiz related endpoints' },
+        { name: 'Question Operations', description: 'Question related endpoints' },
+        { name: 'Game Operations', description: 'Game related endpoints' },
+        { name: 'Invitation Operations', description: 'Invitation related endpoints' },
+      ],
+      components: {
+        securitySchemes: {
+          BearerAuth: {
+            type: 'http',
+            scheme: 'bearer',
+            bearerFormat: 'JWT',
+            description: 'Login endpoint\'inden token alıp buraya yapıştır. Korumalı endpoint\'ler için gerekli.'
+          }
+        }
+      }
+      // Global security kaldırıldı - her endpoint kendi belirleyecek
+
+    },
+  }))
   .use(usersRoutes)
   .use(loginRoutes)
   .use(orgRoutes)
@@ -33,7 +44,7 @@ const app = new Elysia()
   .use(questionsRoutes)
   .use(invitationsRoutes)
   .use(gamesRoutes)
-  .get("/", () => { return "API is working."; },{detail: { summary: 'Main endpoint' }})
+  .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
   .get("/db-health", async () => {
     const timestamp = new Date().toISOString();
 
@@ -72,7 +83,7 @@ const app = new Elysia()
       ...(redisError ? { redisError } : {}),
       timestamp,
     };
-  },{
+  }, {
     detail: { summary: 'Database health check endpoint' }
   })
   .listen(3000);
