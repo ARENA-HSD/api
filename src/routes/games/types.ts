@@ -1,13 +1,13 @@
-// ============================================
+
 // GAME TYPES & INTERFACES
-// ============================================
+
 
 export type GameStatus = 'LOBBY' | 'ACTIVE' | 'FINISHED';
 export type GameMode = 'PERSONAL' | 'STAGE';
 
-// ============================================
+
 // REDIS DATA STRUCTURES
-// ============================================
+
 
 export interface GameState {
     status: GameStatus;
@@ -33,19 +33,19 @@ export interface LeaderboardEntry {
     score: number;
 }
 
-// ============================================
+
 // HTTP REQUEST/RESPONSE TYPES
-// ============================================
+
 
 export interface CreateGameRequest {
     quizId: string;
 }
 
+// PDF SPEC: QR URL removed 
 export interface CreateGameResponse {
     success: boolean;
     gameId: string;
     pin: string;
-    qrUrl: string;
     mode: GameMode;
 }
 
@@ -57,9 +57,9 @@ export interface GameSummaryResponse {
     finalScores?: LeaderboardEntry[];
 }
 
-// ============================================
+
 // WEBSOCKET EVENT TYPES
-// ============================================
+
 
 export type WebSocketEventType =
     | 'JOIN_ROOM'
@@ -68,10 +68,12 @@ export type WebSocketEventType =
     | 'KICK_PLAYER'
     | 'FORCE_DISCONNECT'
     | 'START_GAME'
+    | 'GAME_STARTING'
     | 'QUESTION_START'
     | 'SUBMIT_ANSWER'
-    | 'ANSWER_RESULT'
-    | 'SHOW_SCOREBOARD'
+    | 'QUESTION_END'
+    | 'SHOW_LEADERBOARD'
+    | 'LEADERBOARD_RESULT'
     | 'NEXT_QUESTION'
     | 'GAME_OVER'
     | 'ERROR';
@@ -108,6 +110,14 @@ export interface SubmitAnswerEvent {
     };
 }
 
+// PDF SPEC: NEW - Manual leaderboard trigger
+export interface ShowLeaderboardEvent {
+    type: 'SHOW_LEADERBOARD';
+    data: {
+        gameId: string;
+    };
+}
+
 export interface NextQuestionEvent {
     type: 'NEXT_QUESTION';
     data: {
@@ -124,10 +134,12 @@ export interface JoinSuccessEvent {
     };
 }
 
+// PDF SPEC: recentPlayers (last 28 only)
 export interface LobbyUpdateEvent {
     type: 'LOBBY_UPDATE';
     data: {
         count: number;
+        recentPlayers: string[]; // Last 28 players
     };
 }
 
@@ -138,31 +150,64 @@ export interface ForceDisconnectEvent {
     };
 }
 
+// PDF SPEC: Added serverTime
+export interface GameStartingEvent {
+    type: 'GAME_STARTING';
+    data: {
+        countDown: number;
+        serverTime: number;
+    };
+}
+
+// PDF SPEC: Added serverTime, mode-based filtering
 export interface QuestionStartEvent {
     type: 'QUESTION_START';
     data: {
-        questionIndex: number;
-        text: string;
-        mediaUrl?: string;
-        options: Array<{ text: string; color: string }>;
-        timeLimit: number;
+        qIndex: number;
+        time: number;
+        serverTime: number;
+        text?: string;         // Included in PERSONAL mode
+        mediaUrl?: string;     // Included in PERSONAL mode
+        options?: Array<{ text: string; color: string }>; // Filtered by mode
     };
 }
 
-export interface AnswerResultEvent {
-    type: 'ANSWER_RESULT';
+// PDF SPEC: DIFFERENTIATED - To Host
+export interface QuestionEndHostEvent {
+    type: 'QUESTION_END';
+    data: {
+        correctOptionIndex: number;
+        stats: Record<string, number>; // { "0": 15, "1": 5, "2": 40, "3": 0 }
+    };
+}
+
+// PDF SPEC: DIFFERENTIATED - To Player
+export interface QuestionEndPlayerEvent {
+    type: 'QUESTION_END';
     data: {
         correct: boolean;
-        earnedPoints: number;
-        currentScore: number;
+        scoreEarned: number;
         streak: number;
+        correctOptionIndex: number;
     };
 }
 
-export interface ShowScoreboardEvent {
-    type: 'SHOW_SCOREBOARD';
+// PDF SPEC: DIFFERENTIATED - To Host
+export interface LeaderboardResultHostEvent {
+    type: 'LEADERBOARD_RESULT';
     data: {
-        topPlayers: LeaderboardEntry[];
+        top5: Array<{ nick: string; score: number }>;
+        highStreaks: Array<{ nick: string; streak: number }>;
+    };
+}
+
+// PDF SPEC: DIFFERENTIATED - To Player
+export interface LeaderboardResultPlayerEvent {
+    type: 'LEADERBOARD_RESULT';
+    data: {
+        top5: Array<{ nick: string; score: number }>;
+        myRank: number;
+        myTotalScore: number;
     };
 }
 
@@ -187,19 +232,23 @@ export type WebSocketEvent =
     | KickPlayerEvent
     | StartGameEvent
     | SubmitAnswerEvent
+    | ShowLeaderboardEvent
     | NextQuestionEvent
     | JoinSuccessEvent
     | LobbyUpdateEvent
     | ForceDisconnectEvent
+    | GameStartingEvent
     | QuestionStartEvent
-    | AnswerResultEvent
-    | ShowScoreboardEvent
+    | QuestionEndHostEvent
+    | QuestionEndPlayerEvent
+    | LeaderboardResultHostEvent
+    | LeaderboardResultPlayerEvent
     | GameOverEvent
     | ErrorEvent;
 
-// ============================================
+
 // QUESTION DATA (from DB)
-// ============================================
+
 
 export interface QuestionData {
     id: string;
@@ -217,4 +266,19 @@ export interface QuizData {
     title: string;
     defaultMode: GameMode;
     questions: QuestionData[];
+}
+
+
+// HELPER TYPES FOR TRACKING
+
+
+export interface PlayerAnswerRecord {
+    socketId: string;
+    nickname: string;
+    optionIndex: number;
+    wasCorrect: boolean;
+    scoreEarned: number;
+    totalScore: number;
+    streak: number;
+    answeredAt: number;
 }

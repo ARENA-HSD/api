@@ -1,0 +1,689 @@
+
+// REDIS HELPER FUNCTIONS FOR GAME STATE
+
+
+import Redis from 'ioredis';
+import type {
+    GameState,
+    PlayerInfo,
+    LeaderboardEntry,
+    QuestionData,
+} from '../routes/games/types';
+
+// Initialize Redis client
+const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+export const redis = new Redis(REDIS_URL);
+
+
+// UTILITY FUNCTIONS
+
+
+/**
+ * Generates a unique 6-digit PIN for a game
+ * @returns 6-digit numeric string
+ */
+export function generatePin(): string {
+    const pin = Math.floor(100000 + Math.random() * 900000).toString();
+    return pin;
+}
+
+/**
+ * Calculates score based on answer correctness, time, and streak
+ * @param isCorrect - Whether the answer is correct
+ * @param basePoints - Base points for the question
+ * @param timeLimit - Total time limit in seconds
+ * @param timeRemaining - Remaining time in seconds
+ * @param currentStreak - Current correct answer streak
+ * @returns Calculated score
+ */
+export function calculateScore(
+    isCorrect: boolean,
+    basePoints: number,
+    timeLimit: number,
+    timeRemaining: number,
+    currentStreak: number
+): number {
+    if (!isCorrect) return 0;
+
+    // Base score
+    let score = basePoints;
+
+    // Time bonus (faster = more points)
+    const timeBonus = Math.floor((timeRemaining / timeLimit) * basePoints * 0.5);
+    score += timeBonus;
+
+    // Streak multiplier (3+ correct in a row = 1.5x)
+    if (currentStreak >= 3) {
+        score = Math.floor(score * 1.5);
+    }
+
+    return score;
+}
+
+/**
+ * Handles nickname duplication by appending #1, #2, etc.
+ * @param nickname - Original nickname
+ * @param existingNicknames - Array of existing nicknames in the game
+ * @returns Unique nickname
+ */
+export function handleNicknameDuplication(
+    nickname: string,
+    existingNicknames: string[]
+): string {
+    let uniqueNickname = nickname;
+    let counter = 1;
+
+    while (existingNicknames.includes(uniqueNickname)) {
+        uniqueNickname = `${nickname}#${counter}`;
+        counter++;
+    }
+
+    return uniqueNickname;
+}
+
+/**
+ * Extracts client IP address from headers
+ * @param headers - Request headers
+ * @returns IP address
+ */
+export function getClientIP(headers: Record<string, string | undefined>): string {
+    // Check common headers for IP (proxy, load balancer, etc.)
+    const ip =
+        headers['x-forwarded-for']?.split(',')[0].trim() ||
+        headers['x-real-ip'] ||
+        headers['cf-connecting-ip'] || // Cloudflare
+        'unknown';
+
+    return ip;
+}
+
+
+
+// KEY GENERATORS
+
+
+const getGameStateKey = (pin: string) => `game:${pin}:state`;
+const getPlayersKey = (pin: string) => `game:${pin}:players`;
+const getRecentPlayersKey = (pin: string) => `game:${pin}:recent_players`; // NEW: For LTRIM
+const getPlayerInfoKey = (pin: string, socketId: string) => `game:${pin}:player:${socketId}`;
+const getPlayerAnswerKey = (pin: string, questionId: string, socketId: string) => `game:${pin}:answer:${questionId}:${socketId}`; // NEW: Track answers
+const getAnswersKey = (pin: string) => `game:${pin}:answers`;
+const getLeaderboardKey = (pin: string) => `game:${pin}:leaderboard`;
+const getBannedKey = (pin: string) => `game:${pin}:banned`;
+const getCalculationLockKeyGlobal = (pin: string, questionId: string) => `game:${pin}:calc_lock:${questionId}`; // NEW: Global calculation lock
+
+
+// GAME STATE OPERATIONS
+
+
+/**
+ * Creates initial game state in Redis
+ */
+export async function createGameState(
+    pin: string,
+    quizId: string,
+    mode: 'PERSONAL' | 'STAGE',
+    hostSocketId: string,
+    totalQuestions: number
+): Promise<void> {
+    const state: GameState = {
+        status: 'LOBBY',
+        currentQuestionIndex: 0,
+        mode,
+        hostSocketId,
+        totalAnswers: 0,
+        quizId,
+        totalPlayers: 0,
+        totalQuestions,
+    };
+
+    await redis.hset(getGameStateKey(pin), state as any);
+}
+
+/**
+ * Gets current game state
+ */
+export async function getGameState(pin: string): Promise<GameState | null> {
+    const state = await redis.hgetall(getGameStateKey(pin));
+
+    if (!state || Object.keys(state).length === 0) {
+        return null;
+    }
+
+    return {
+        status: state.status as any,
+        currentQuestionIndex: parseInt(state.currentQuestionIndex),
+        mode: state.mode as any,
+        hostSocketId: state.hostSocketId,
+        totalAnswers: parseInt(state.totalAnswers),
+        quizId: state.quizId,
+        totalPlayers: parseInt(state.totalPlayers),
+        totalQuestions: parseInt(state.totalQuestions),
+    };
+}
+
+/**
+ * Updates game state fields
+ */
+export async function updateGameState(
+    pin: string,
+    updates: Partial<GameState>
+): Promise<void> {
+    await redis.hset(getGameStateKey(pin), updates as any);
+}
+
+
+// PLAYER OPERATIONS
+
+
+/**
+ * Adds a player to the game
+ */
+export async function addPlayer(
+    pin: string,
+    socketId: string,
+    nickname: string,
+    ip: string
+): Promise<void> {
+    // Add to players set
+    await redis.sadd(getPlayersKey(pin), socketId);
+
+    // Create player info
+    const playerInfo: PlayerInfo = {
+        nickname,
+        score: 0,
+        streak: 0,
+        ip,
+        hasAnswered: false,
+    };
+
+    await redis.hset(getPlayerInfoKey(pin, socketId), playerInfo as any);
+
+    // Add to leaderboard with score 0
+    await redis.zadd(getLeaderboardKey(pin), 0, nickname);
+
+    // Increment total players
+    await redis.hincrby(getGameStateKey(pin), 'totalPlayers', 1);
+}
+
+/**
+ * Removes a player from the game
+ */
+export async function removePlayer(pin: string, socketId: string): Promise<void> {
+    // Get player info first to remove from leaderboard
+    const playerInfo = await getPlayerInfo(pin, socketId);
+
+    if (playerInfo) {
+        await redis.zrem(getLeaderboardKey(pin), playerInfo.nickname);
+    }
+
+    // Remove from players set
+    await redis.srem(getPlayersKey(pin), socketId);
+
+    // Remove player info
+    await redis.del(getPlayerInfoKey(pin, socketId));
+
+    // Decrement total players
+    await redis.hincrby(getGameStateKey(pin), 'totalPlayers', -1);
+}
+
+/**
+ * Gets player info
+ */
+export async function getPlayerInfo(
+    pin: string,
+    socketId: string
+): Promise<PlayerInfo | null> {
+    const info = await redis.hgetall(getPlayerInfoKey(pin, socketId));
+
+    if (!info || Object.keys(info).length === 0) {
+        return null;
+    }
+
+    return {
+        nickname: info.nickname,
+        score: parseInt(info.score),
+        streak: parseInt(info.streak),
+        ip: info.ip,
+        hasAnswered: info.hasAnswered === 'true',
+    };
+}
+
+/**
+ * Updates player score and adds to leaderboard
+ */
+export async function updatePlayerScore(
+    pin: string,
+    socketId: string,
+    scoreToAdd: number,
+    isCorrect: boolean
+): Promise<{ newScore: number; newStreak: number }> {
+    const playerKey = getPlayerInfoKey(pin, socketId);
+    const playerInfo = await getPlayerInfo(pin, socketId);
+
+    if (!playerInfo) {
+        throw new Error('Player not found');
+    }
+
+    // Update score
+    const newScore = playerInfo.score + scoreToAdd;
+    await redis.hset(playerKey, 'score', newScore);
+
+    // Update streak
+    let newStreak = playerInfo.streak;
+    if (isCorrect) {
+        newStreak += 1;
+    } else {
+        newStreak = 0;
+    }
+    await redis.hset(playerKey, 'streak', newStreak);
+
+    // Update leaderboard
+    await redis.zadd(getLeaderboardKey(pin), newScore, playerInfo.nickname);
+
+    // Mark as answered
+    await redis.hset(playerKey, 'hasAnswered', 'true');
+
+    return { newScore, newStreak };
+}
+
+/**
+ * Gets all nicknames in the game
+ */
+export async function getAllNicknames(pin: string): Promise<string[]> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    const nicknames: string[] = [];
+
+    for (const socketId of socketIds) {
+        const playerInfo = await getPlayerInfo(pin, socketId);
+        if (playerInfo) {
+            nicknames.push(playerInfo.nickname);
+        }
+    }
+
+    return nicknames;
+}
+
+/**
+ * Resets all players' hasAnswered flag for next question
+ */
+export async function resetAllAnswerFlags(pin: string): Promise<void> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+
+    for (const socketId of socketIds) {
+        await redis.hset(getPlayerInfoKey(pin, socketId), 'hasAnswered', 'false');
+    }
+
+    // Reset total answers
+    await redis.hset(getGameStateKey(pin), 'totalAnswers', 0);
+}
+
+
+// LEADERBOARD OPERATIONS
+
+
+/**
+ * Gets top N players from leaderboard
+ */
+export async function getLeaderboard(
+    pin: string,
+    limit: number = 5
+): Promise<LeaderboardEntry[]> {
+    // ZREVRANGE returns highest scores first
+    const results = await redis.zrevrange(
+        getLeaderboardKey(pin),
+        0,
+        limit - 1,
+        'WITHSCORES'
+    );
+
+    const leaderboard: LeaderboardEntry[] = [];
+
+    for (let i = 0; i < results.length; i += 2) {
+        leaderboard.push({
+            nickname: results[i],
+            score: parseInt(results[i + 1]),
+        });
+    }
+
+    return leaderboard;
+}
+
+
+// ANSWER KEY OPERATIONS
+
+
+/**
+ * Loads answer key to Redis (correct answers for all questions)
+ */
+export async function loadAnswerKey(
+    pin: string,
+    questions: QuestionData[]
+): Promise<void> {
+    const answerKey: Record<string, number> = {};
+
+    for (const question of questions) {
+        answerKey[question.id] = question.correctIndex;
+    }
+
+    await redis.hset(getAnswersKey(pin), answerKey as any);
+}
+
+/**
+ * Checks if answer is correct (zero-latency, from Redis)
+ */
+export async function checkAnswer(
+    pin: string,
+    questionId: string,
+    answerIndex: number
+): Promise<boolean> {
+    const correctIndex = await redis.hget(getAnswersKey(pin), questionId);
+
+    if (correctIndex === null) {
+        throw new Error('Question not found in answer key');
+    }
+
+    return parseInt(correctIndex) === answerIndex;
+}
+
+
+// BAN OPERATIONS
+
+
+/**
+ * Adds IP to ban list
+ */
+export async function addToBanList(pin: string, ip: string): Promise<void> {
+    await redis.sadd(getBannedKey(pin), ip);
+}
+
+/**
+ * Checks if IP is banned
+ */
+export async function isBanned(pin: string, ip: string): Promise<boolean> {
+    const result = await redis.sismember(getBannedKey(pin), ip);
+    return result === 1;
+}
+
+
+// CLEANUP OPERATIONS
+
+
+/**
+ * Deletes all game-related keys from Redis
+ */
+export async function cleanupGame(pin: string): Promise<void> {
+    // Get all player socket IDs first
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+
+    // Delete all player info keys
+    for (const socketId of socketIds) {
+        await redis.del(getPlayerInfoKey(pin, socketId));
+    }
+
+    // Delete main keys
+    await redis.del(
+        getGameStateKey(pin),
+        getPlayersKey(pin),
+        getAnswersKey(pin),
+        getLeaderboardKey(pin),
+        getBannedKey(pin)
+    );
+}
+
+/**
+ * Gets all socket IDs of players in the game
+ */
+export async function getAllPlayerSockets(pin: string): Promise<string[]> {
+    return await redis.smembers(getPlayersKey(pin));
+}
+
+
+// CALCULATION LOCK OPERATIONS
+
+
+const getCalculationLockKey = (pin: string, questionId: string, socketId: string) =>
+    `game:${pin}:lock:${questionId}:${socketId}`;
+
+/**
+ * Tries to acquire calculation lock for answer submission
+ * Returns true if lock was acquired, false if already locked
+ */
+export async function acquireCalculationLock(
+    pin: string,
+    questionId: string,
+    socketId: string
+): Promise<boolean> {
+    const lockKey = getCalculationLockKey(pin, questionId, socketId);
+    // SET with NX (only if not exists) and EX (expiration in seconds)
+    const result = await redis.set(lockKey, '1', 'EX', 60, 'NX');
+    return result === 'OK';
+}
+
+/**
+ * Releases calculation lock (optional, as they auto-expire)
+ */
+export async function releaseCalculationLock(
+    pin: string,
+    questionId: string,
+    socketId: string
+): Promise<void> {
+    const lockKey = getCalculationLockKey(pin, questionId, socketId);
+    await redis.del(lockKey);
+}
+
+
+// RANK TRACKING OPERATIONS
+
+
+const getRankSnapshotKey = (pin: string) => `game:${pin}:rank_snapshot`;
+
+/**
+ * Saves current leaderboard ranks before question results
+ */
+export async function saveRankSnapshot(pin: string): Promise<void> {
+    const leaderboard = await redis.zrevrange(
+        getLeaderboardKey(pin),
+        0,
+        -1,
+        'WITHSCORES'
+    );
+
+    const snapshot: Record<string, number> = {};
+    let rank = 1;
+
+    for (let i = 0; i < leaderboard.length; i += 2) {
+        const nickname = leaderboard[i];
+        snapshot[nickname] = rank++;
+    }
+
+    await redis.hset(getRankSnapshotKey(pin), snapshot as any);
+}
+
+/**
+ * Gets previous rank for a player
+ */
+export async function getPreviousRank(pin: string, nickname: string): Promise<number> {
+    const rank = await redis.hget(getRankSnapshotKey(pin), nickname);
+    return rank ? parseInt(rank) : 0;
+}
+
+/**
+ * Gets current rank for a player
+ */
+export async function getCurrentRank(pin: string, nickname: string): Promise<number> {
+    const rank = await redis.zrevrank(getLeaderboardKey(pin), nickname);
+    return rank !== null ? rank + 1 : 0; // ZREVRANK is 0-indexed
+}
+
+/**
+ * Clears rank snapshot (call before taking new snapshot)
+ */
+export async function clearRankSnapshot(pin: string): Promise<void> {
+    await redis.del(getRankSnapshotKey(pin));
+}
+
+
+// TIME SYNCHRONIZATION
+
+
+const getQuestionTimerKey = (pin: string) => `game:${pin}:question_timer`;
+
+/**
+ * Stores when the current question started
+ */
+export async function setQuestionStartTime(pin: string, timestamp: number): Promise<void> {
+    await redis.set(getQuestionTimerKey(pin), timestamp.toString());
+}
+
+/**
+ * Gets when the current question started
+ */
+export async function getQuestionStartTime(pin: string): Promise<number | null> {
+    const time = await redis.get(getQuestionTimerKey(pin));
+    return time ? parseInt(time) : null;
+}
+
+/**
+ * Clears question timer
+ */
+export async function clearQuestionTimer(pin: string): Promise<void> {
+    await redis.del(getQuestionTimerKey(pin));
+}
+
+
+//  RECENT PLAYERS (LTRIM FOR LAST 28)
+
+
+/**
+ * Gets recent N players (default 28) using LRANGE
+ */
+export async function getRecentPlayers(pin: string, limit: number = 28): Promise<string[]> {
+    return await redis.lrange(getRecentPlayersKey(pin), 0, limit - 1);
+}
+
+/**
+ * Adds player to recent list (LPUSH + LTRIM to keep only last 28)
+ */
+export async function addRecentPlayer(pin: string, nickname: string): Promise<void> {
+    const key = getRecentPlayersKey(pin);
+    await redis.lpush(key, nickname);
+    await redis.ltrim(key, 0, 27); // Keep only last 28
+}
+
+
+// PLAYER ANSWER TRACKING
+
+
+/**
+ * Stores which option a player chose (for statistics)
+ */
+export async function storePlayerAnswer(
+    pin: string,
+    questionId: string,
+    socketId: string,
+    optionIndex: number
+): Promise<void> {
+    await redis.set(getPlayerAnswerKey(pin, questionId, socketId), optionIndex.toString());
+}
+
+/**
+ * Gets which option a player chose
+ */
+export async function getPlayerAnswer(
+    pin: string,
+    questionId: string,
+    socketId: string
+): Promise<number | null> {
+    const answer = await redis.get(getPlayerAnswerKey(pin, questionId, socketId));
+    return answer !== null ? parseInt(answer) : null;
+}
+
+/**
+ * PDF SPEC: Get statistics for question (how many chose each option)
+ * Returns: { "0": 15, "1": 5, "2": 40, "3": 0 }
+ */
+export async function getAnswerStats(pin: string, questionId: string): Promise<Record<string, number>> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    const stats: Record<string, number> = {};
+
+    for (const socketId of socketIds) {
+        const answer = await getPlayerAnswer(pin, questionId, socketId);
+        if (answer !== null) {
+            const key = answer.toString();
+            stats[key] = (stats[key] || 0) + 1;
+        }
+    }
+
+    return stats;
+}
+
+
+// PDF SPEC: STREAK LEADERS
+
+
+/**
+ * Gets players with highest streaks
+ */
+export async function getStreakLeaders(pin: string, limit: number = 5): Promise<Array<{ nick: string; streak: number }>> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    const streaks: Array<{ nick: string; streak: number }> = [];
+
+    for (const socketId of socketIds) {
+        const playerInfo = await getPlayerInfo(pin, socketId);
+        if (playerInfo && playerInfo.streak > 0) {
+            streaks.push({
+                nick: playerInfo.nickname,
+                streak: playerInfo.streak,
+            });
+        }
+    }
+
+    // Sort by streak descending
+    streaks.sort((a, b) => b.streak - a.streak);
+
+    return streaks.slice(0, limit);
+}
+
+
+// PDF SPEC: GLOBAL CALCULATION LOCK
+
+
+/**
+ * Acquires global calculation lock for a question
+ * Used to prevent SHOW_LEADERBOARD from being called before calculations finish
+ */
+export async function acquireGlobalCalculationLock(pin: string, questionId: string): Promise<boolean> {
+    const lockKey = getCalculationLockKeyGlobal(pin, questionId);
+    const result = await redis.set(lockKey, '1', 'EX', 60, 'NX');
+    return result === 'OK';
+}
+
+/**
+ * Releases global calculation lock
+ */
+export async function releaseGlobalCalculationLock(pin: string, questionId: string): Promise<void> {
+    await redis.del(getCalculationLockKeyGlobal(pin, questionId));
+}
+
+/**
+ * Waits for global calculation lock to be released (with timeout)
+ */
+export async function waitForCalculationLock(pin: string, questionId: string, timeoutMs: number = 5000): Promise<void> {
+    const lockKey = getCalculationLockKeyGlobal(pin, questionId);
+    const startTime = Date.now();
+
+    while (true) {
+        const exists = await redis.exists(lockKey);
+        if (!exists) {
+            return; // Lock released
+        }
+
+        if (Date.now() - startTime > timeoutMs) {
+            throw new Error('Calculation lock timeout');
+        }
+
+        // Wait 100ms before checking again
+        await new Promise(resolve => setTimeout(resolve, 100));
+    }
+}
