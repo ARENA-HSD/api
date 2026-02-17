@@ -1,9 +1,9 @@
 import { Elysia, t } from "elysia";
 import bearer from "@elysiajs/bearer";
 import jwtPlugin from "@elysiajs/jwt";
-import { jwtConfig } from "../../lib/auth";
-import { requireAuth } from "../../utils/auth-helpers";
-import * as questionService from "../../services/question.service";
+import { jwtConfig } from "../../middleware/auth.middleware";
+import { requireAuth } from "../../shared/helpers/crypto.helper";
+import * as questionService from "./questions.service";
 
 export const questionsRoutes = new Elysia({
   prefix: "/org/:orgDomain/quizzes/:quizId/questions",

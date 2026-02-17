@@ -1,5 +1,5 @@
 import jwt from "jsonwebtoken";
-import { schema } from "../db";
+import { schema } from "../core/database/client";
 import type { InferSelectModel } from "drizzle-orm";
 
 const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";

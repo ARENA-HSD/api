@@ -2,8 +2,8 @@ import { Elysia, t } from "elysia";
 import bearer from "@elysiajs/bearer";
 import jwtPlugin from "@elysiajs/jwt";
 import { and, eq, ne, or } from "drizzle-orm";
-import { db, schema } from "../../db";
-import { jwtConfig, toPublicUser } from "../../lib/auth";
+import { db, schema } from "../../core/database/client";
+import { jwtConfig, toPublicUser } from "../../middleware/auth.middleware";
 
 type CookieJar = Record<string, { value?: string | undefined }> | undefined;
 type AuthPayload = { sub: string; email: string };

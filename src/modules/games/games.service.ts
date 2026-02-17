@@ -3,9 +3,9 @@
 // Business Logic & WebSocket Event Handlers
 
 
-import { db, schema } from '../../db';
+import { db, schema } from '../../core/database/client';
 import { eq } from 'drizzle-orm';
-import * as GamesHelper from '../../utils/games.helper';
+import * as GamesHelper from '../../core/cache/repositories/game.repository';
 import type {
     CreateGameRequest,
     CreateGameResponse,
@@ -16,7 +16,7 @@ import type {
     SubmitAnswerEvent,
     ShowLeaderboardEvent,
     NextQuestionEvent,
-} from './types';
+} from './games.types';
 
 
 // UTILITY FUNCTIONS

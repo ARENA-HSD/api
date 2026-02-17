@@ -3,13 +3,13 @@
 
 
 import { Elysia, t } from 'elysia';
-import * as GamesHelper from '../../utils/games.helper';
-import * as GameService from './service';
+import * as GamesHelper from '../../core/cache/repositories/game.repository';
+import * as GameService from './games.service';
 import type {
   CreateGameRequest,
   CreateGameResponse,
   GameSummaryResponse,
-} from './types';
+} from './games.types';
 
 
 // ELYSIA APP WITH HTTP + WEBSOCKET
@@ -194,8 +194,53 @@ export const gamesRoutes = new Elysia({ prefix: '/games' })
       }
     },
 
-    close(ws) {
-      console.log('WebSocket disconnected:', ws.id);
+    async close(ws) {
+      const socketId = ws.id;
+      const metadata = ws.data as any;
+
+      console.log('WebSocket disconnected:', socketId);
+
+      // ws.data contains pin if player joined a game
+      if (metadata?.pin) {
+        const pin = metadata.pin;
+
+        try {
+          // Cleanup disconnected player
+          const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+
+          if (result.success && result.shouldBroadcast && result.state) {
+            // Broadcast based on game status
+            if (result.state.status === 'LOBBY') {
+              // LOBBY: Update player list
+              const players = await GamesHelper.getAllPlayerSockets(pin);
+              const playerList = [];
+              for (const sid of players) {
+                const info = await GamesHelper.getPlayerInfo(pin, sid);
+                if (info) {
+                  playerList.push({ socketId: sid, nickname: info.nickname });
+                }
+              }
+
+              const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+
+              // Broadcast LOBBY_UPDATE
+              ws.publish(`game:${pin}`, JSON.stringify({
+                type: 'LOBBY_UPDATE',
+                data: {
+                  players: playerList,
+                  recentPlayers,
+                  totalPlayers: result.state.totalPlayers - 1
+                }
+              }));
+            } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
+              // ACTIVE: Just log, game continues
+              console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
+            }
+          }
+        } catch (error) {
+          console.error('WebSocket close error:', error);
+        }
+      }
     },
   });
 

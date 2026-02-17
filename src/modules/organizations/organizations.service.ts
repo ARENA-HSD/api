@@ -1,5 +1,5 @@
 import { eq, and } from "drizzle-orm";
-import { db, schema } from "../db";
+import { db, schema } from "../../core/database/client";
 
 export type CreateOrganizationData = {
     name: string;
