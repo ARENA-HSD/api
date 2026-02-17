@@ -1,8 +1,52 @@
 import { RedisClient } from "bun";
 import { Elysia } from "elysia";
-import { db, schema } from "./db";
+import { db, schema } from "./core/database/client";
 import { openapi } from "@elysiajs/openapi";
-import { gamesRoutes, usersRoutes, orgRoutes, questionsRoutes, quizzesRoutes, loginRoutes, invitationsRoutes } from "./routes";
+import { gamesRoutes } from "./modules/games/games.controller";
+import { usersRoutes } from "./modules/users/users.controller";
+import { orgRoutes } from "./modules/organizations/organizations.controller";
+import { questionsRoutes } from "./modules/questions/questions.controller";
+import { quizzesRoutes } from "./modules/quizzes/quizzes.controller";
+import { loginRoutes } from "./modules/auth/auth.controller";
+import { invitationsRoutes } from "./modules/invitations/invitations.controller";
+
+// ✅ Environment Variable Validation
+const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
+
+console.log('🔍 Validating environment variables...');
+
+const missingVars: string[] = [];
+for (const varName of requiredEnvVars) {
+  if (!process.env[varName]) {
+    missingVars.push(varName);
+  }
+}
+
+if (missingVars.length > 0) {
+  console.error('❌ Missing required environment variables:');
+  missingVars.forEach(v => console.error(`   - ${v}`));
+  console.error('\n💡 Please check your .env file');
+  process.exit(1);
+}
+
+console.log('✅ All required environment variables present');
+
+// Optional variables with defaults
+const optionalEnvVars: Record<string, string> = {
+  PORT: '3000',
+  NODE_ENV: 'development',
+  LOG_LEVEL: 'info'
+};
+
+console.log('ℹ️  Optional environment variables:');
+for (const [key, defaultValue] of Object.entries(optionalEnvVars)) {
+  const value = process.env[key] || defaultValue;
+  console.log(`   - ${key}: ${value}${!process.env[key] ? ' (default)' : ''}`);
+
+  if (!process.env[key]) {
+    process.env[key] = defaultValue;
+  }
+}
 
 const redisClient = new RedisClient();
 

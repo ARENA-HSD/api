@@ -2,7 +2,7 @@
 // ORGANIZATION & RBAC HELPERS
 
 
-import { db, schema } from '../db';
+import { db, schema } from '../core/database/client';
 import { eq, and } from 'drizzle-orm';
 
 /**

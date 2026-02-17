@@ -6,8 +6,8 @@
 import { Elysia, t } from 'elysia';
 import bearer from '@elysiajs/bearer';
 import jwtPlugin from '@elysiajs/jwt';
-import * as quizService from './service';
-import { jwtConfig } from '../../lib/auth';
+import * as quizService from './quizzes.service';
+import { jwtConfig } from '../../middleware/auth.middleware';
 
 
 // ELYSIA ROUTES
@@ -18,9 +18,9 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
   .use(bearer())
   .use(jwtPlugin({ name: 'jwt', secret: jwtConfig.secret }))
 
-  
+
   // QUIZ ENDPOINTS
-  
+
 
   /**
    * POST /org/:orgDomain/quizzes
@@ -339,10 +339,10 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
     }
   )
 
-  
+
   // QUESTION ENDPOINTS
 
-  
+
 
   /**
    * POST /org/:orgDomain/quizzes/:quizId/questions

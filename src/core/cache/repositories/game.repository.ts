@@ -228,6 +228,45 @@ export async function removePlayer(pin: string, socketId: string): Promise<void>
 }
 
 /**
+ * Handles player disconnect cleanup
+ * - Removes player from Redis
+ * - Returns game state and broadcast decision
+ */
+export async function handlePlayerDisconnect(
+    pin: string,
+    socketId: string
+): Promise<{ success: boolean; shouldBroadcast: boolean; state: any | null; playerInfo: any | null }> {
+    try {
+        // 1. Get game state
+        const state = await getGameState(pin);
+        if (!state) {
+            return { success: false, shouldBroadcast: false, state: null, playerInfo: null };
+        }
+
+        // 2. Get player info before removing
+        const playerInfo = await getPlayerInfo(pin, socketId);
+        if (!playerInfo) {
+            return { success: false, shouldBroadcast: false, state, playerInfo: null };
+        }
+
+        // 3. Remove player from Redis
+        await removePlayer(pin, socketId);
+
+        // 4. Log disconnect
+        console.log(`Player disconnected: ${playerInfo.nickname} (${socketId}) from game ${pin}`);
+
+        // 5. Determine if should broadcast
+        // Only broadcast in LOBBY or ACTIVE status
+        const shouldBroadcast = ['LOBBY', 'ACTIVE'].includes(state.status);
+
+        return { success: true, shouldBroadcast, state, playerInfo };
+    } catch (error) {
+        console.error('Disconnect cleanup error:', error);
+        return { success: false, shouldBroadcast: false, state: null, playerInfo: null };
+    }
+}
+
+/**
  * Gets player info
  */
 export async function getPlayerInfo(

@@ -3,7 +3,7 @@
 // Business Logic & Database Operations
 
 
-import { db, schema } from '../../db';
+import { db, schema } from '../../core/database/client';
 import { eq, and, desc, asc } from 'drizzle-orm';
 import {
     getOrgIdBySubdomain,
@@ -11,7 +11,7 @@ import {
     hasQuizPermission,
     verifyQuizBelongsToOrg,
     verifyQuestionBelongsToQuiz,
-} from '../../utils/rbac.helper';
+} from '../../middleware/rbac.middleware';
 import {
     sanitizeQuizTitle,
     sanitizeQuestionText,
@@ -19,7 +19,7 @@ import {
     sanitizeTimeLimit,
     sanitizePoints,
     sanitizeQuestionOptions,
-} from '../../utils/sanitize.helper';
+} from '../../shared/utils/sanitize.util';
 
 
 // TYPE DEFINITIONS
