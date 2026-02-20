@@ -1,5 +1,6 @@
-import { eq, and, asc } from "drizzle-orm";
+import { eq, and, asc, desc } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
+import { verifyQuizBelongsToOrg, validateOrgAccessAndGetOrgId } from "../../middleware/rbac.middleware";
 
 export type CreateQuestionData = {
     text: string;
@@ -16,133 +17,111 @@ export type UpdateQuestionData = {
     mediaUrl?: string;
     timeLimit?: number;
     points?: number;
-    options?: string[];
+    options?: QuestionOption[];
     correctIndex?: number;
     orderIndex?: number;
 };
 
-/**
- * Validation helper for question data
- * Enforces strict rules: 4 options, correctIndex 0-3, timeLimit 10-120, points ≥100
- */
-export function validateQuestionData(data: {
-    options?: string[];
-    correctIndex?: number;
+export interface ReorderQuestionsRequest {
+    questionIds: string[];
+}
+
+interface QuestionOption {
+    text: string;
+    color: 'blue' | 'red' | 'green' | 'yellow' | 'orange' | 'purple' | 'pink' | 'brown' | 'black' | 'white' | 'gray';
+}
+
+export interface CreateQuestionRequest {
+    text: string;
+    mediaUrl?: string;
+    timeLimit: number;
+    points?: number;
+    correctIndex: number;
+    options: QuestionOption[];
+}
+
+export interface UpdateQuestionRequest {
+    text?: string;
+    mediaUrl?: string;
     timeLimit?: number;
     points?: number;
-    text?: string;
-}): { valid: boolean; error?: string } {
-    // Text validation (minimum 5 characters)
-    if (data.text !== undefined && data.text.length < 5) {
-        return { valid: false, error: "Text must be at least 5 characters" };
-    }
-
-    // Options validation - MUST be exactly 4 items
-    if (data.options !== undefined && data.options.length !== 4) {
-        return { valid: false, error: "Options must have exactly 4 items" };
-    }
-
-    // CorrectIndex validation - MUST be 0-3
-    if (
-        data.correctIndex !== undefined &&
-        (data.correctIndex < 0 || data.correctIndex > 3)
-    ) {
-        return { valid: false, error: "correctIndex must be between 0 and 3" };
-    }
-
-    // TimeLimit validation - MUST be 10-120 seconds
-    if (
-        data.timeLimit !== undefined &&
-        (data.timeLimit < 10 || data.timeLimit > 120)
-    ) {
-        return { valid: false, error: "timeLimit must be between 10 and 120" };
-    }
-
-    // Points validation - MUST be at least 100
-    if (data.points !== undefined && data.points < 100) {
-        return { valid: false, error: "points must be at least 100" };
-    }
-
-    return { valid: true };
+    correctIndex?: number;
+    options?: QuestionOption[];
 }
 
 /**
- * Validate hierarchy: Organization exists → Quiz exists → Quiz belongs to Organization
- * This "triple check" prevents orphaned data
- */
-async function validateHierarchy(orgDomain: string, quizId: string) {
-    // 1. Check if organization exists
-    const [organization] = await db
-        .select()
-        .from(schema.organizations)
-        .where(eq(schema.organizations.subdomain, orgDomain))
-        .limit(1);
-
-    if (!organization) {
-        throw new Error("Organization not found");
-    }
-
-    // 2. Check if quiz exists and belongs to organization
-    const [quiz] = await db
-        .select()
-        .from(schema.quizzes)
-        .where(
-            and(
-                eq(schema.quizzes.id, quizId),
-                eq(schema.quizzes.orgId, organization.id)
-            )
-        )
-        .limit(1);
-
-    if (!quiz) {
-        throw new Error("Quiz not found in organization");
-    }
-
-    return { organization, quiz };
-}
-
-/**
- * Create a new question with hierarchy validation
+ * Create a new question with org access validation
  */
 export async function createQuestion(
     orgDomain: string,
     quizId: string,
-    data: CreateQuestionData
+    questionData: CreateQuestionRequest,
+    userId: string
 ) {
-    // Validate question data
-    const validation = validateQuestionData(data);
-    if (!validation.valid) {
-        throw new Error(validation.error);
+    // 1. Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        return accessResult;
+    }
+    const orgId = accessResult.orgId;
+
+    // 3. Verify quiz belongs to org
+    const belongs = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!belongs) {
+        return { status: 404, success: false, message: 'Quiz not found' };
     }
 
-    // Validate hierarchy (org > quiz)
-    await validateHierarchy(orgDomain, quizId);
+    // 6. Get max orderIndex for auto-increment
+    const existingQuestions = await db.query.questions.findMany({
+        where: eq(schema.questions.quizId, quizId),
+        columns: { orderIndex: true },
+        orderBy: desc(schema.questions.orderIndex),
+        limit: 1,
+    });
 
-    // Create question
-    const [question] = await db
+    const nextOrderIndex = existingQuestions.length > 0
+        ? existingQuestions[0].orderIndex + 1
+        : 0;
+
+    // 7. Create question
+    const [newQuestion] = await db
         .insert(schema.questions)
         .values({
             quizId,
-            text: data.text,
-            mediaUrl: data.mediaUrl,
-            timeLimit: data.timeLimit,
-            points: data.points,
-            options: data.options,
-            correctIndex: data.correctIndex,
-            orderIndex: data.orderIndex,
+            text: questionData.text,
+            mediaUrl: questionData.mediaUrl,
+            timeLimit: questionData.timeLimit,
+            points: questionData.points || 1000,
+            correctIndex: questionData.correctIndex,
+            orderIndex: nextOrderIndex,
+            options: questionData.options,
         })
         .returning();
 
-    return question;
+    return {
+        status: 201,
+        success: true,
+        data: newQuestion,
+    };
 }
 
 /**
  * List all questions for a quiz, sorted by orderIndex ASC
  * Sorting is CRITICAL for game flow
  */
-export async function listQuestions(orgDomain: string, quizId: string) {
-    // Validate hierarchy
-    await validateHierarchy(orgDomain, quizId);
+export async function listQuestions(orgDomain: string, quizId: string, userId: string) {
+    // Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        throw new Error(accessResult.message);
+    }
+    const orgId = accessResult.orgId;
+
+    // Verify quiz belongs to org
+    const quizExists = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!quizExists) {
+        throw new Error("Quiz not found");
+    }
 
     // Get questions sorted by orderIndex
     const questions = await db
@@ -155,15 +134,26 @@ export async function listQuestions(orgDomain: string, quizId: string) {
 }
 
 /**
- * Get a single question by ID with hierarchy validation
+ * Get a single question by ID with org access validation
  */
 export async function getQuestionById(
     orgDomain: string,
     quizId: string,
-    questionId: string
+    questionId: string,
+    userId: string
 ) {
-    // Validate hierarchy
-    await validateHierarchy(orgDomain, quizId);
+    // Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        throw new Error(accessResult.message);
+    }
+    const orgId = accessResult.orgId;
+
+    // Verify quiz belongs to org
+    const quizExists = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!quizExists) {
+        throw new Error("Quiz not found");
+    }
 
     // Get question
     const [question] = await db
@@ -191,16 +181,21 @@ export async function updateQuestion(
     orgDomain: string,
     quizId: string,
     questionId: string,
-    data: UpdateQuestionData
+    data: UpdateQuestionData,
+    userId: string
 ) {
-    // Validate question data
-    const validation = validateQuestionData(data);
-    if (!validation.valid) {
-        throw new Error(validation.error);
+    // Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        throw new Error(accessResult.message);
     }
+    const orgId = accessResult.orgId;
 
-    // Validate hierarchy and get question
-    await validateHierarchy(orgDomain, quizId);
+    // Verify quiz belongs to org
+    const quizExists = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!quizExists) {
+        throw new Error("Quiz not found");
+    }
 
     const [existingQuestion] = await db
         .select()
@@ -238,15 +233,26 @@ export async function updateQuestion(
 }
 
 /**
- * Delete a question with hierarchy validation
+ * Delete a question with org access validation
  */
 export async function deleteQuestion(
     orgDomain: string,
     quizId: string,
-    questionId: string
+    questionId: string,
+    userId: string
 ) {
-    // Validate hierarchy
-    await validateHierarchy(orgDomain, quizId);
+    // Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        throw new Error(accessResult.message);
+    }
+    const orgId = accessResult.orgId;
+
+    // Verify quiz belongs to org
+    const quizExists = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!quizExists) {
+        throw new Error("Quiz not found");
+    }
 
     // Check if question exists
     const [existingQuestion] = await db
@@ -271,4 +277,70 @@ export async function deleteQuestion(
         .returning({ id: schema.questions.id });
 
     return deleted;
+}
+
+/**
+ * Reorder questions
+ */
+export async function reorderQuestions(
+    orgDomain: string,
+    quizId: string,
+    body: ReorderQuestionsRequest,
+    userId: string
+) {
+    // 1. Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        return accessResult;
+    }
+    const orgId = accessResult.orgId;
+
+    // 2. Verify quiz belongs to org
+    const quizExists = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!quizExists) {
+        return { status: 404, success: false, message: 'Quiz not found' };
+    }
+
+    // 3. Fetch all questions in quiz
+    const allQuestions = await db.query.questions.findMany({
+        where: eq(schema.questions.quizId, quizId),
+        columns: { id: true },
+    });
+
+    // 4. Validate: must provide ALL question IDs
+    if (body.questionIds.length !== allQuestions.length) {
+        return {
+            status: 400,
+            success: false,
+            message: `Must provide all ${allQuestions.length} question IDs`,
+        };
+    }
+
+    // 4. Validate: all IDs must belong to quiz
+    const questionIdSet = new Set(allQuestions.map((q) => q.id));
+    for (const id of body.questionIds) {
+        if (!questionIdSet.has(id)) {
+            return {
+                status: 400,
+                success: false,
+                message: `Question ${id} does not belong to this quiz`,
+            };
+        }
+    }
+
+    // 5. Update orderIndex for each question (in transaction)
+    await db.transaction(async (tx) => {
+        for (let i = 0; i < body.questionIds.length; i++) {
+            await tx
+                .update(schema.questions)
+                .set({ orderIndex: i })
+                .where(eq(schema.questions.id, body.questionIds[i]));
+        }
+    });
+
+    return {
+        status: 200,
+        success: true,
+        message: 'Questions reordered successfully',
+    };
 }

@@ -41,7 +41,11 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     {
       body: t.Object({
         name: t.String(),
-        subdomain: t.String({ minLength: 3 }),
+        subdomain: t.String({ 
+          minLength: 3, 
+          maxLength: 20,
+          pattern: '^[a-zA-Z0-9]+$',
+        }),
         branding: t.Optional(
           t.Object({
             logoUrl: t.Optional(t.String()),

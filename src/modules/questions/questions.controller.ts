@@ -20,11 +20,14 @@ export const questionsRoutes = new Elysia({
         return { success: false, message: "Unauthorized" };
       }
 
+      const userId = auth.sub;
+
       try {
         const question = await questionService.createQuestion(
           params.orgDomain,
           params.quizId,
-          body
+          body,
+          userId
         );
 
         return {
@@ -59,11 +62,27 @@ export const questionsRoutes = new Elysia({
     },
     {
       body: t.Object({
-        text: t.String({ minLength: 5 }),
-        mediaUrl: t.Optional(t.String()),
+        text: t.String({ minLength: 5, maxLength: 1000 }),
+        mediaUrl: t.Optional(t.String({ maxLength: 2048 })),
         timeLimit: t.Number({ minimum: 10, maximum: 120 }),
-        points: t.Number({ minimum: 100 }),
-        options: t.Array(t.String(), { minItems: 4, maxItems: 4 }),
+        points: t.Number({ minimum: 100, maximum: 1000 }),
+        options: t.Array(
+          t.Object({
+            text: t.String({ minLength: 1, maxLength: 200 }),
+            color: t.Union([
+              t.Literal('red'),
+              t.Literal('blue'),
+              t.Literal('green'),
+              t.Literal('yellow'),
+              t.Literal('orange'),
+              t.Literal('purple'),
+              t.Literal('pink'),
+              t.Literal('brown'),
+              t.Literal('black'),
+              t.Literal('white'),
+              t.Literal('gray')
+            ]),
+          }), { minItems: 4, maxItems: 4 }),
         correctIndex: t.Number({ minimum: 0, maximum: 3 }),
         orderIndex: t.Number({ minimum: 0 }),
       }),
@@ -85,11 +104,19 @@ export const questionsRoutes = new Elysia({
   // GET - List all questions (sorted by orderIndex)
   .get(
     "/",
-    async ({ set, params }) => {
+    async ({ set, params, bearer, cookie, jwt }) => {
+      const auth = await requireAuth(jwt, bearer, cookie, set);
+      if (!auth) {
+        return { success: false, message: "Unauthorized" };
+      }
+
+      const userId = auth.sub;
+
       try {
         const questions = await questionService.listQuestions(
           params.orgDomain,
-          params.quizId
+          params.quizId,
+          userId
         );
 
         return {
@@ -120,6 +147,7 @@ export const questionsRoutes = new Elysia({
       detail: {
         summary: "Get all questions for a quiz",
         description: "Returns all questions sorted by orderIndex (ASC)",
+        security: [{ BearerAuth: [] }],
         tags: ["Question Operations"],
       },
     }
@@ -128,12 +156,20 @@ export const questionsRoutes = new Elysia({
   // GET - Get single question by ID
   .get(
     "/:questionId",
-    async ({ set, params }) => {
+    async ({ set, params, bearer, cookie, jwt }) => {
+      const auth = await requireAuth(jwt, bearer, cookie, set);
+      if (!auth) {
+        return { success: false, message: "Unauthorized" };
+      }
+
+      const userId = auth.sub;
+
       try {
         const question = await questionService.getQuestionById(
           params.orgDomain,
           params.quizId,
-          params.questionId
+          params.questionId,
+          userId
         );
 
         return {
@@ -169,6 +205,7 @@ export const questionsRoutes = new Elysia({
       detail: {
         summary: "Get question by ID",
         description: "Returns a single question with hierarchy validation",
+        security: [{ BearerAuth: [] }],
         tags: ["Question Operations"],
       },
     }
@@ -183,12 +220,15 @@ export const questionsRoutes = new Elysia({
         return { success: false, message: "Unauthorized" };
       }
 
+      const userId = auth.sub;
+
       try {
         const updated = await questionService.updateQuestion(
           params.orgDomain,
           params.quizId,
           params.questionId,
-          body
+          body,
+          userId
         );
 
         return {
@@ -228,11 +268,27 @@ export const questionsRoutes = new Elysia({
         questionId: t.String(),
       }),
       body: t.Object({
-        text: t.Optional(t.String({ minLength: 5 })),
-        mediaUrl: t.Optional(t.String()),
+        text: t.Optional(t.String({ minLength: 5, maxLength: 1000 })),
+        mediaUrl: t.Optional(t.String({ maxLength: 2048 })),
         timeLimit: t.Optional(t.Number({ minimum: 10, maximum: 120 })),
-        points: t.Optional(t.Number({ minimum: 100 })),
-        options: t.Optional(t.Array(t.String(), { minItems: 4, maxItems: 4 })),
+        points: t.Optional(t.Number({ minimum: 100, maximum: 1000 })),
+        options: t.Array(
+          t.Object({
+            text: t.String({ minLength: 1, maxLength: 200 }),
+            color: t.Union([
+              t.Literal('red'),
+              t.Literal('blue'),
+              t.Literal('green'),
+              t.Literal('yellow'),
+              t.Literal('orange'),
+              t.Literal('purple'),
+              t.Literal('pink'),
+              t.Literal('brown'),
+              t.Literal('black'),
+              t.Literal('white'),
+              t.Literal('gray')
+            ]),
+          }), { minItems: 4, maxItems: 4 }),
         correctIndex: t.Optional(t.Number({ minimum: 0, maximum: 3 })),
         orderIndex: t.Optional(t.Number({ minimum: 0 })),
       }),
@@ -260,11 +316,14 @@ export const questionsRoutes = new Elysia({
         return { success: false, message: "Unauthorized" };
       }
 
+      const userId = auth.sub;
+
       try {
         const deleted = await questionService.deleteQuestion(
           params.orgDomain,
           params.quizId,
-          params.questionId
+          params.questionId,
+          userId
         );
 
         return {
@@ -302,6 +361,64 @@ export const questionsRoutes = new Elysia({
         summary: "Delete question",
         description: "Delete a question from the quiz",
         tags: ["Question Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  )
+   /**
+   * POST /org/:orgDomain/quizzes/:quizId/questions/reorder
+   * Reorder questions
+   */
+  .post(
+    '/reorder',
+    async ({ params, body, bearer, jwt, set }) => {
+      try {
+        // Verify JWT
+        if (!bearer) {
+          set.status = 401;
+          return { success: false, message: 'Bearer token required' };
+        }
+
+        const payload = await jwt.verify(bearer);
+        if (!payload || !payload.sub) {
+          set.status = 401;
+          return { success: false, message: 'Invalid token' };
+        }
+
+        const userId = payload.sub as string;
+
+        // Call service
+        const result = await questionService.reorderQuestions(
+          params.orgDomain,
+          params.quizId,
+          body,
+          userId
+        );
+
+        set.status = result.status;
+        if (result.success && 'data' in result) {
+          return { success: true, data: result.data };
+        }
+        return { success: false, message: result.message };
+      } catch (error) {
+        console.error('Reorder questions error:', error);
+        set.status = 500;
+        return { success: false, message: 'Internal server error' };
+      }
+    },
+    {
+      body: t.Object({
+        questionIds: t.Array(t.String()),
+      }),
+      response: t.Object({
+        success: t.Boolean(),
+        data: t.Optional(t.Any()),
+        message: t.Optional(t.String()),
+      }),
+      detail: {
+        summary: 'Reorder questions',
+        tags: ['Question Operations'],
+        description: 'Reorder questions by providing an array of question IDs in the new order.',
         security: [{ BearerAuth: [] }],
       },
     }

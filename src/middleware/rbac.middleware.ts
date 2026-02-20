@@ -7,8 +7,9 @@ import { eq, and } from 'drizzle-orm';
 
 /**
  * Resolves organization ID from subdomain
+ * Internal use only - use validateOrgAccessAndGetOrgId for public access
  */
-export async function getOrgIdBySubdomain(subdomain: string): Promise<string | null> {
+async function getOrgIdBySubdomain(subdomain: string): Promise<string | null> {
     const org = await db.query.organizations.findFirst({
         where: eq(schema.organizations.subdomain, subdomain),
         columns: {
@@ -52,30 +53,33 @@ export function hasQuizPermission(
 }
 
 /**
- * Checks if user can delete organization (only SUPER_ADMIN)
+ * CONSOLIDATED: Validates organization access and returns orgId
+ * Combines: org existence check → user role check → permission check
+ * Returns error response or orgId in single operation
  */
-export function canDeleteOrganization(
-    role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | null
-): boolean {
-    return role === 'SUPER_ADMIN';
-}
+export async function validateOrgAccessAndGetOrgId(
+    orgDomain: string,
+    userId: string
+): Promise<
+    | { success: true; orgId: string }
+    | { status: 404; success: false; message: string }
+    | { status: 403; success: false; message: string }
+> {
+    // 1. Resolve orgId from subdomain
+    const orgId = await getOrgIdBySubdomain(orgDomain);
+    if (!orgId) {
+        return { status: 404, success: false, message: 'Organization not found' };
+    }
 
-/**
- * Checks if user can invite admins (only SUPER_ADMIN)
- */
-export function canInviteAdmins(
-    role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | null
-): boolean {
-    return role === 'SUPER_ADMIN';
-}
+    // 2. Check user's role in org
+    const userRole = await getUserRoleInOrg(userId, orgId);
 
-/**
- * Checks if user can manage white-label settings (SUPER_ADMIN or ADMIN)
- */
-export function canManageWhiteLabel(
-    role: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | null
-): boolean {
-    return role === 'SUPER_ADMIN' || role === 'ADMIN';
+    // 3. Check permissions
+    if (!hasQuizPermission(userRole)) {
+        return { status: 403, success: false, message: 'Insufficient permissions' };
+    }
+
+    return { success: true, orgId };
 }
 
 /**
@@ -97,34 +101,4 @@ export async function verifyQuizBelongsToOrg(
     });
 
     return !!quiz;
-}
-
-/**
- * Verifies that a question belongs to a quiz in a specific org
- */
-export async function verifyQuestionBelongsToQuiz(
-    questionId: string,
-    quizId: string,
-    orgId: string
-): Promise<boolean> {
-    const question = await db.query.questions.findFirst({
-        where: eq(schema.questions.id, questionId),
-        with: {
-            quiz: {
-                columns: {
-                    id: true,
-                    orgId: true,
-                    isDeleted: true,
-                },
-            },
-        },
-    });
-
-    if (!question) return false;
-    if (!question.quiz) return false;
-    if (question.quiz.isDeleted) return false;
-    if (question.quiz.id !== quizId) return false;
-    if (question.quiz.orgId !== orgId) return false;
-
-    return true;
 }

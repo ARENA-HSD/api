@@ -52,11 +52,8 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
         );
 
         set.status = result.status;
-        return {
-          success: result.success,
-          data: result.data,
-          message: result.message,
-        };
+        return result;
+        
       } catch (error) {
         console.error('Create quiz error:', error);
         set.status = 500;
@@ -65,7 +62,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
     },
     {
       body: t.Object({
-        title: t.String({ minLength: 3 }), // PDF requirement: min 3 chars
+        title: t.String({ minLength: 3, maxLength: 100 }), // PDF requirement: min 3 chars, max 100
         defaultMode: t.Union([t.Literal('PERSONAL'), t.Literal('STAGE')]),
       }),
       response: t.Object({
@@ -76,7 +73,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       detail: {
         summary: 'Create a new quiz',
         tags: ['Quiz Operations'],
-        security: [{ bearerAuth: [] }],
+        security: [{ BearerAuth: [] }],
         description: 'Creates a new quiz in the specified organization. Requires MANAGER role or higher.',
         responses: {
           201: { description: 'Quiz created successfully', content: { 'application/json': {} } },
@@ -116,11 +113,17 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
         const result = await quizService.listQuizzes(params.orgDomain, userId);
 
         set.status = result.status;
-        return {
-          success: result.success,
-          data: result.data,
-          message: result.message,
-        };
+        if (result.success) {
+          return {
+            success: result.success,
+            data: result.data,
+          };
+        } else {
+          return {
+            success: result.success,
+            message: result.message,
+          };
+        }
       } catch (error) {
         console.error('List quizzes error:', error);
         set.status = 500;
@@ -136,7 +139,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       detail: {
         summary: 'Get all quizzes in organization',
         tags: ['Quiz Operations'],
-        security: [{ bearerAuth: [] }],
+        security: [{ BearerAuth: [] }],
         description: 'Lists all active quizzes for the organization. Ordered by creation date descending.',
         responses: {
           200: { description: 'List of quizzes', content: { 'application/json': {} } },
@@ -198,7 +201,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       detail: {
         summary: 'Get quiz by ID with questions',
         tags: ['Quiz Operations'],
-        security: [{ bearerAuth: [] }],
+        security: [{ BearerAuth: [] }],
         description: 'Retrieves detailed quiz information including all questions ordered by index.',
         responses: {
           200: { description: 'Quiz details', content: { 'application/json': {} } },
@@ -265,7 +268,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       detail: {
         summary: 'Update quiz',
         tags: ['Quiz Operations'],
-        security: [{ bearerAuth: [] }],
+        security: [{ BearerAuth: [] }],
         description: 'Updates quiz title or default mode. Only provided fields are updated.',
         responses: {
           200: { description: 'Quiz updated', content: { 'application/json': {} } },
@@ -327,7 +330,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       detail: {
         summary: 'Delete quiz (soft delete)',
         tags: ['Quiz Operations'],
-        security: [{ bearerAuth: [] }],
+        security: [{ BearerAuth: [] }],
         description: 'Soft deletes a quiz by setting isDeleted=true. Questions remain in DB.',
         responses: {
           200: { description: 'Quiz deleted', content: { 'application/json': {} } },
@@ -335,261 +338,6 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
           403: { description: 'Forbidden', content: { 'application/json': {} } },
           404: { description: 'Quiz or Organization not found', content: { 'application/json': {} } },
         },
-      },
-    }
-  )
-
-
-  // QUESTION ENDPOINTS
-
-
-
-  /**
-   * POST /org/:orgDomain/quizzes/:quizId/questions
-   * Create a new question
-   */
-  .post(
-    '/:quizId/questions',
-    async ({ params, body, bearer, jwt, set }) => {
-      try {
-        // Verify JWT
-        if (!bearer) {
-          set.status = 401;
-          return { success: false, message: 'Bearer token required' };
-        }
-
-        const payload = await jwt.verify(bearer);
-        if (!payload || !payload.sub) {
-          set.status = 401;
-          return { success: false, message: 'Invalid token' };
-        }
-
-        const userId = payload.sub as string;
-
-        // Call service
-        const result = await quizService.createQuestion(
-          params.orgDomain,
-          params.quizId,
-          body,
-          userId
-        );
-
-        set.status = result.status;
-        return {
-          success: result.success,
-          data: result.data,
-          message: result.message,
-        };
-      } catch (error) {
-        console.error('Create question error:', error);
-        set.status = 500;
-        return { success: false, message: 'Internal server error' };
-      }
-    },
-    {
-      body: t.Object({
-        text: t.String(),
-        mediaUrl: t.Optional(t.String()),
-        timeLimit: t.Number(),
-        points: t.Optional(t.Number()),
-        correctIndex: t.Number(),
-        options: t.Array(
-          t.Object({
-            text: t.String(),
-            color: t.String(),
-          })
-        ),
-      }),
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: 'Create a new question',
-        tags: ['Question Operations'],
-      },
-    }
-  )
-
-  /**
-   * PATCH /org/:orgDomain/quizzes/:quizId/questions/:questionId
-   * Update question
-   */
-  .patch(
-    '/:quizId/questions/:questionId',
-    async ({ params, body, bearer, jwt, set }) => {
-      try {
-        // Verify JWT
-        if (!bearer) {
-          set.status = 401;
-          return { success: false, message: 'Bearer token required' };
-        }
-
-        const payload = await jwt.verify(bearer);
-        if (!payload || !payload.sub) {
-          set.status = 401;
-          return { success: false, message: 'Invalid token' };
-        }
-
-        const userId = payload.sub as string;
-
-        // Call service
-        const result = await quizService.updateQuestion(
-          params.orgDomain,
-          params.quizId,
-          params.questionId,
-          body,
-          userId
-        );
-
-        set.status = result.status;
-        return {
-          success: result.success,
-          data: result.data,
-          message: result.message,
-        };
-      } catch (error) {
-        console.error('Update question error:', error);
-        set.status = 500;
-        return { success: false, message: 'Internal server error' };
-      }
-    },
-    {
-      body: t.Object({
-        text: t.Optional(t.String()),
-        mediaUrl: t.Optional(t.String()),
-        timeLimit: t.Optional(t.Number()),
-        points: t.Optional(t.Number()),
-        correctIndex: t.Optional(t.Number()),
-        options: t.Optional(
-          t.Array(
-            t.Object({
-              text: t.String(),
-              color: t.String(),
-            })
-          )
-        ),
-      }),
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: 'Update question',
-        tags: ['Question Operations'],
-      },
-    }
-  )
-
-  /**
-   * DELETE /org/:orgDomain/quizzes/:quizId/questions/:questionId
-   * Delete question (hard delete)
-   */
-  .delete(
-    '/:quizId/questions/:questionId',
-    async ({ params, bearer, jwt, set }) => {
-      try {
-        // Verify JWT
-        if (!bearer) {
-          set.status = 401;
-          return { success: false, message: 'Bearer token required' };
-        }
-
-        const payload = await jwt.verify(bearer);
-        if (!payload || !payload.sub) {
-          set.status = 401;
-          return { success: false, message: 'Invalid token' };
-        }
-
-        const userId = payload.sub as string;
-
-        // Call service
-        const result = await quizService.deleteQuestion(
-          params.orgDomain,
-          params.quizId,
-          params.questionId,
-          userId
-        );
-
-        set.status = result.status;
-        if (result.success && 'data' in result) {
-          return { success: true, data: result.data };
-        }
-        return { success: false, message: result.message };
-      } catch (error) {
-        console.error('Delete question error:', error);
-        set.status = 500;
-        return { success: false, message: 'Internal server error' };
-      }
-    },
-    {
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: 'Delete question',
-        tags: ['Question Operations'],
-      },
-    }
-  )
-
-  /**
-   * POST /org/:orgDomain/quizzes/:quizId/questions/reorder
-   * Reorder questions
-   */
-  .post(
-    '/:quizId/questions/reorder',
-    async ({ params, body, bearer, jwt, set }) => {
-      try {
-        // Verify JWT
-        if (!bearer) {
-          set.status = 401;
-          return { success: false, message: 'Bearer token required' };
-        }
-
-        const payload = await jwt.verify(bearer);
-        if (!payload || !payload.sub) {
-          set.status = 401;
-          return { success: false, message: 'Invalid token' };
-        }
-
-        const userId = payload.sub as string;
-
-        // Call service
-        const result = await quizService.reorderQuestions(
-          params.orgDomain,
-          params.quizId,
-          body,
-          userId
-        );
-
-        set.status = result.status;
-        if (result.success && 'data' in result) {
-          return { success: true, data: result.data };
-        }
-        return { success: false, message: result.message };
-      } catch (error) {
-        console.error('Reorder questions error:', error);
-        set.status = 500;
-        return { success: false, message: 'Internal server error' };
-      }
-    },
-    {
-      body: t.Object({
-        questionIds: t.Array(t.String()),
-      }),
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: 'Reorder questions',
-        tags: ['Question Operations'],
       },
     }
   );
