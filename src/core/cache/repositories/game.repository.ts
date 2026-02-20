@@ -8,7 +8,7 @@ import type {
     PlayerInfo,
     LeaderboardEntry,
     QuestionData,
-} from '../routes/games/types';
+} from '../../../modules/games/games.types';
 
 // Initialize Redis client
 const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
