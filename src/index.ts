@@ -9,6 +9,9 @@ import { questionsRoutes } from "./modules/questions/questions.controller";
 import { quizzesRoutes } from "./modules/quizzes/quizzes.controller";
 import { loginRoutes } from "./modules/auth/auth.controller";
 import { invitationsRoutes } from "./modules/invitations/invitations.controller";
+import { cors } from '@elysiajs/cors';
+import * as GamesHelper from './core/cache/repositories/game.repository';
+import * as GameService from './modules/games/games.service';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -130,6 +133,106 @@ const app = new Elysia()
   }, {
     detail: { summary: 'Database health check endpoint' }
   })
+  .ws('/ws', {
+    open(ws) {
+      console.log('WebSocket connected:', ws.id);
+    },
+
+    async message(ws, message: any) {
+      try {
+        const event = typeof message === 'string' ? JSON.parse(message) : message;
+        const type = event.type;
+        const data = event.data;
+
+        switch (type) {
+          case 'JOIN_ROOM':
+            await GameService.handleJoinRoom(ws, data);
+            break;
+          case 'KICK_PLAYER':
+            await GameService.handleKickPlayer(ws, data);
+            break;
+          case 'START_GAME':
+            await GameService.handleStartGame(ws, data);
+            break;
+          case 'SUBMIT_ANSWER':
+            await GameService.handleSubmitAnswer(ws, data);
+            break;
+          case 'SHOW_LEADERBOARD':
+            await GameService.handleShowLeaderboard(ws, data);
+            break;
+          case 'NEXT_QUESTION':
+            await GameService.handleNextQuestion(ws, data);
+            break;
+          default:
+            ws.send(JSON.stringify({
+              type: 'ERROR',
+              data: { message: 'Unknown event type' },
+            }));
+        }
+      } catch (error) {
+        console.error('WebSocket message error:', error);
+        ws.send(JSON.stringify({
+          type: 'ERROR',
+          data: { message: 'Internal server error' },
+        }));
+      }
+    },
+
+    async close(ws) {
+      const socketId = ws.id;
+      const metadata = ws.data as any;
+
+      console.log('WebSocket disconnected:', socketId);
+
+      // ws.data contains pin if player joined a game
+      if (metadata?.pin) {
+        const pin = metadata.pin;
+
+        try {
+          // Cleanup disconnected player
+          const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+
+          if (result.success && result.shouldBroadcast && result.state) {
+            // Broadcast based on game status
+            if (result.state.status === 'LOBBY') {
+              // LOBBY: Update player list
+              const players = await GamesHelper.getAllPlayerSockets(pin);
+              const playerList: { socketId: string; nickname: string }[] = [];
+              for (const sid of players) {
+                const info = await GamesHelper.getPlayerInfo(pin, sid);
+                if (info) {
+                  playerList.push({ socketId: sid, nickname: info.nickname });
+                }
+              }
+
+              const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+
+              // Broadcast LOBBY_UPDATE
+              ws.publish(`game:${pin}`, JSON.stringify({
+                type: 'LOBBY_UPDATE',
+                data: {
+                  players: playerList,
+                  recentPlayers,
+                  totalPlayers: result.state.totalPlayers - 1
+                }
+              }));
+            } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
+              // ACTIVE: Just log, game continues
+              console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
+            }
+          }
+        } catch (error) {
+          console.error('WebSocket close error:', error);
+        }
+      }
+    },
+  })
+  .use(cors({
+    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection'],
+    credentials: true
+  }))
   .listen(3000);
 
 console.log(
