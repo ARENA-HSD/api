@@ -12,6 +12,7 @@ import { invitationsRoutes } from "./modules/invitations/invitations.controller"
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
+import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -54,6 +55,26 @@ for (const [key, defaultValue] of Object.entries(optionalEnvVars)) {
 const redisClient = new RedisClient();
 
 const app = new Elysia()
+  .derive(() => {
+    return {
+      startTime: process.hrtime()
+    }
+  })
+  .onAfterResponse(({ request, set, path, method, startTime }) => {
+    if (startTime) {
+      const diff = process.hrtime(startTime);
+      const durationSeconds = (diff[0] * 1e9 + diff[1]) / 1e9;
+
+      const statusCode = set.status ? String(set.status) : '200';
+
+      httpRequestDurationSeconds.labels(method, path, statusCode).observe(durationSeconds);
+      httpRequestsTotal.labels(method, path, statusCode).inc();
+    }
+  })
+  .get("/metrics", async ({ set }) => {
+    set.headers["Content-Type"] = register.contentType;
+    return await register.metrics();
+  })
   .use(openapi({
     documentation: {
       info: {

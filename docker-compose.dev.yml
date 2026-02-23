@@ -13,8 +13,8 @@ services:
       - REDIS_URL=${REDIS_URL}
       - NODE_ENV=development
     volumes:
-      - .:/app             # Kodunu içeri yansıtır (Hot Reload için şart)
-      - /app/node_modules  # Konteynerin kendi modüllerini korur (ÖNEMLİ)
+      - .:/app # Kodunu içeri yansıtır (Hot Reload için şart)
+      - /app/node_modules # Konteynerin kendi modüllerini korur (ÖNEMLİ)
     depends_on:
       postgres:
         condition: service_healthy
@@ -22,7 +22,7 @@ services:
         condition: service_healthy
     networks:
       - arena-network
-    command: ["bun", "run", "--watch", "src/index.ts"]
+    command: [ "bun", "run", "--watch", "src/index.ts" ]
 
   # --- POSTGRES (DEV) ---
   postgres:
@@ -40,7 +40,7 @@ services:
     networks:
       - arena-network
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}"]
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -57,7 +57,7 @@ services:
     networks:
       - arena-network
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test: [ "CMD", "redis-cli", "ping" ]
       interval: 5s
       timeout: 3s
       retries: 5
@@ -73,6 +73,55 @@ services:
         condition: service_healthy
     environment:
       PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
+
+  # --- MONITOR (DEV) ---
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: arena-prometheus
+    restart: unless-stopped
+    volumes:
+      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    networks:
+      - arena-network
+
+  loki:
+    image: grafana/loki:latest
+    container_name: arena-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - ./config/loki.yml:/etc/loki/local-config.yaml
+    networks:
+      - arena-network
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: arena-promtail
+    restart: unless-stopped
+    volumes:
+      - ./config/promtail.yml:/etc/promtail/config.yml
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks:
+      - arena-network
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: arena-grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+    networks:
+      - arena-network
 
 networks:
   arena-network:
