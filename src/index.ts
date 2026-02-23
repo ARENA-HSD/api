@@ -134,8 +134,16 @@ const app = new Elysia()
     detail: { summary: 'Database health check endpoint' }
   })
   .ws('/ws', {
-    open(ws) {
+    async open(ws) {
       console.log('WebSocket connected:', ws.id);
+      // Set broadcaster publisher once for service-layer broadcasting
+      try {
+        const { setPublisher } = await import('./core/pubsub/broadcaster');
+        // bind ws.publish to ensure correct `this`
+        setPublisher((ws.publish as any).bind(ws));
+      } catch (err) {
+        console.error('Failed to set publisher', err);
+      }
     },
 
     async message(ws, message: any) {
@@ -208,14 +216,19 @@ const app = new Elysia()
               const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
 
               // Broadcast LOBBY_UPDATE
-              ws.publish(`game:${pin}`, JSON.stringify({
-                type: 'LOBBY_UPDATE',
-                data: {
-                  players: playerList,
-                  recentPlayers,
-                  totalPlayers: result.state.totalPlayers - 1
-                }
-              }));
+              try {
+                const { publish } = await import('./core/pubsub/broadcaster');
+                const updatedState = await GamesHelper.getGameState(pin);
+                await publish(`game:${pin}`, JSON.stringify({
+                  type: 'LOBBY_UPDATE',
+                  data: {
+                    count: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1),
+                    recentPlayers,
+                  }
+                }));
+              } catch (err) {
+                console.error('Failed to publish LOBBY_UPDATE on disconnect', err);
+              }
             } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
               // ACTIVE: Just log, game continues
               console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
@@ -233,7 +246,10 @@ const app = new Elysia()
     allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection'],
     credentials: true
   }))
-  .listen(3000);
+  ;
+
+// Expose server instance for service-level publishes used in games.service
+app.listen(3000);
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`

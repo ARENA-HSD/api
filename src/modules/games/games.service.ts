@@ -217,24 +217,57 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     // 5. Subscribe to game room
     ws.subscribe(`game:${pin}`);
 
+    // Refresh state after adding player
+    const updatedState = await GamesHelper.getGameState(pin);
+
+    // If no host assigned yet (after add), set this socket as host and subscribe to host channel
+    if (updatedState && !updatedState.hostSocketId) {
+        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
+        ws.subscribe(`game:${pin}:host`);
+    }
+
     // 6. Notify player of successful join
     ws.send(JSON.stringify({
-        type: 'ROOM_JOINED',
+        type: 'JOIN_SUCCESS',
         data: {
-            pin,
-            nickname: uniqueNickname,
-            playerCount: state.totalPlayers + 1,
+            status: 'WAITING',
+            myNick: uniqueNickname,
         },
     }));
 
-    // 7. Notify all players in room
-    ws.publish(`game:${pin}`, JSON.stringify({
-        type: 'PLAYER_JOINED',
-        data: {
-            nickname: uniqueNickname,
-            playerCount: state.totalPlayers + 1,
-        },
-    }));
+    // 7. Notify all players in room (PLAYER_JOINED)
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}`, JSON.stringify({
+            type: 'PLAYER_JOINED',
+            data: {
+                nickname: uniqueNickname,
+                playerCount: updatedState ? updatedState.totalPlayers : 0,
+            },
+        }));
+
+        // Also broadcast LOBBY_UPDATE after join so clients refresh lobby immediately
+        const players = await GamesHelper.getAllPlayerSockets(pin);
+        const playerList: { socketId: string; nickname: string }[] = [];
+        for (const sid of players) {
+            const info = await GamesHelper.getPlayerInfo(pin, sid);
+            if (info) {
+                playerList.push({ socketId: sid, nickname: info.nickname });
+            }
+        }
+
+        const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+
+        await publish(`game:${pin}`, JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: {
+                count: playerList.length,
+                recentPlayers
+            }
+        }));
+    } catch (err) {
+        console.error('Failed to broadcast lobby update on join', err);
+    }
 
     // Store pin in ws.data for cleanup
     (ws.data as any).pin = pin;
@@ -273,10 +306,15 @@ export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
     await GamesHelper.removePlayer(pin, socketId);
 
     // 5. Notify everyone
-    ws.publish(`game:${pin}`, JSON.stringify({
-        type: 'PLAYER_KICKED',
-        data: { nickname: playerInfo.nickname },
-    }));
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}`, JSON.stringify({
+            type: 'PLAYER_KICKED',
+            data: { nickname: playerInfo.nickname },
+        }));
+    } catch (err) {
+        console.error('Failed to publish PLAYER_KICKED', err);
+    }
 }
 
 /**
@@ -295,10 +333,32 @@ export async function handleStartGame(ws: any, data: StartGameEvent['data']) {
         return;
     }
 
-    // 2. Update game status to ACTIVE
+    // 2. Notify players that game is starting (countdown)
+    const countDown = 3; // seconds
+    try {
+        // To all players
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}`, JSON.stringify({
+            type: 'GAME_STARTING',
+            data: { countDown, serverTime: Date.now() },
+        }));
+
+        // To host channel as well
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'GAME_STARTING',
+            data: { countDown, serverTime: Date.now() },
+        }));
+    } catch (err) {
+        console.error('Failed to broadcast GAME_STARTING', err);
+    }
+
+    // 3. Wait countdown and then start
+    await new Promise(resolve => setTimeout(resolve, countDown * 1000));
+
+    // 4. Update game status to ACTIVE
     await GamesHelper.updateGameState(pin, { status: 'ACTIVE' });
 
-    // 3. Send first question
+    // 5. Send first question
     await sendQuestionStart(pin, 0);
 }
 
@@ -349,13 +409,14 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     const filteredQuestion = filterQuestionByMode(questionData, state.mode);
 
     // PDF SPEC: To host (PERSONAL mode)
-    (global as any).server?.publish(`game:${pin}:host`, JSON.stringify({
+        const { publish } = await import('../../core/pubsub/broadcaster');
+    await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_START',
         data: { ...filteredQuestion, mode: 'PERSONAL' },
     }));
 
     // PDF SPEC: To players (use game mode)
-    (global as any).server?.publish(`game:${pin}`, JSON.stringify({
+    await publish(`game:${pin}`, JSON.stringify({
         type: 'QUESTION_START',
         data: { ...filteredQuestion, mode: state.mode },
     }));
@@ -469,7 +530,8 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
 
     // PDF SPEC: Differentiated payloads
     // To host: full stats
-    (global as any).server?.publish(`game:${pin}:host`, JSON.stringify({
+    const { publish } = await import('../../core/pubsub/broadcaster');
+    await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_END',
         data: {
             qIndex: questionIndex,
@@ -479,7 +541,7 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
     }));
 
     // To players: only streak leaders
-    (global as any).server?.publish(`game:${pin}`, JSON.stringify({
+    await publish(`game:${pin}`, JSON.stringify({
         type: 'QUESTION_END',
         data: {
             qIndex: questionIndex,
@@ -523,7 +585,8 @@ export async function showLeaderboard(pin: string) {
 
     // PDF SPEC: Differentiated payloads
     // To host: full top 5 + recent 28
-    (global as any).server?.publish(`game:${pin}:host`, JSON.stringify({
+    const { publish } = await import('../../core/pubsub/broadcaster');
+    await publish(`game:${pin}:host`, JSON.stringify({
         type: 'LEADERBOARD_RESULT',
         data: {
             top5,
@@ -532,7 +595,7 @@ export async function showLeaderboard(pin: string) {
     }));
 
     // To players: only top 5
-    (global as any).server?.publish(`game:${pin}`, JSON.stringify({
+    await publish(`game:${pin}`, JSON.stringify({
         type: 'LEADERBOARD_RESULT',
         data: {
             top5,
@@ -563,7 +626,8 @@ export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data'
         await GamesHelper.updateGameState(pin, { status: 'FINISHED' });
         const finalScores = await GamesHelper.getLeaderboard(pin, 10);
 
-        (global as any).server?.publish(`game:${pin}`, JSON.stringify({
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}`, JSON.stringify({
             type: 'GAME_OVER',
             data: { finalScores },
         }));

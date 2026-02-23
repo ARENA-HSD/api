@@ -66,6 +66,8 @@ export type WebSocketEventType =
     | 'JOIN_SUCCESS'
     | 'LOBBY_UPDATE'
     | 'KICK_PLAYER'
+    | 'PLAYER_JOINED'
+    | 'PLAYER_KICKED'
     | 'FORCE_DISCONNECT'
     | 'START_GAME'
     | 'GAME_STARTING'
@@ -140,6 +142,23 @@ export interface LobbyUpdateEvent {
     data: {
         count: number;
         recentPlayers: string[]; // Last 28 players
+        players?: Array<{ socketId: string; nickname: string }>;
+        totalPlayers?: number;
+    };
+}
+
+export interface PlayerJoinedEvent {
+    type: 'PLAYER_JOINED';
+    data: {
+        nickname: string;
+        playerCount: number;
+    };
+}
+
+export interface PlayerKickedEvent {
+    type: 'PLAYER_KICKED';
+    data: {
+        nickname: string;
     };
 }
 
@@ -236,6 +255,8 @@ export type WebSocketEvent =
     | NextQuestionEvent
     | JoinSuccessEvent
     | LobbyUpdateEvent
+    | PlayerJoinedEvent
+    | PlayerKickedEvent
     | ForceDisconnectEvent
     | GameStartingEvent
     | QuestionStartEvent
