@@ -477,6 +477,19 @@ export async function getAllPlayerSockets(pin: string): Promise<string[]> {
     return await redis.smembers(getPlayersKey(pin));
 }
 
+/**
+ * Counts how many players have `hasAnswered` === true for current question
+ */
+export async function countAnsweredPlayers(pin: string): Promise<number> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    let count = 0;
+    for (const sid of socketIds) {
+        const info = await getPlayerInfo(pin, sid);
+        if (info && info.hasAnswered) count++;
+    }
+    return count;
+}
+
 
 // CALCULATION LOCK OPERATIONS
 

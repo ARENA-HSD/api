@@ -19,6 +19,18 @@ import type {
 } from './games.types';
 
 
+// Local in-memory timers for question end scheduling per game pin
+const questionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function clearLocalQuestionTimer(pin: string) {
+    const t = questionTimers.get(pin);
+    if (t) {
+        clearTimeout(t);
+        questionTimers.delete(pin);
+    }
+}
+
+
 // UTILITY FUNCTIONS
 
 
@@ -405,11 +417,14 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     // 5. Set question start time
     await GamesHelper.setQuestionStartTime(pin, Date.now());
 
+    // Clear any existing local timer for this pin (prevent duplicate scheduling)
+    clearLocalQuestionTimer(pin);
+
     // 6. Send QUESTION_START (differentiated by mode)
     const filteredQuestion = filterQuestionByMode(questionData, state.mode);
 
     // PDF SPEC: To host (PERSONAL mode)
-        const { publish } = await import('../../core/pubsub/broadcaster');
+    const { publish } = await import('../../core/pubsub/broadcaster');
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_START',
         data: { ...filteredQuestion, mode: 'PERSONAL' },
@@ -420,6 +435,26 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
         type: 'QUESTION_START',
         data: { ...filteredQuestion, mode: state.mode },
     }));
+
+    // Schedule QUESTION_END when question time expires (add small buffer)
+    try {
+        const timeoutMs = (question.timeLimit * 1000) + 200;
+        const timer = setTimeout(async () => {
+            try {
+                const currentState = await GamesHelper.getGameState(pin);
+                // only trigger if still on the same question index
+                if (currentState && currentState.currentQuestionIndex === questionIndex) {
+                    await showQuestionEnd(pin, questionIndex, question.id);
+                }
+            } catch (err) {
+                console.error('Error in scheduled question end', err);
+            }
+        }, timeoutMs);
+
+        questionTimers.set(pin, timer);
+    } catch (err) {
+        console.error('Failed to schedule question end', err);
+    }
 }
 
 /**
@@ -507,11 +542,16 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
         },
     }));
 
-    // 10. Check if all players answered
-    const updatedState = await GamesHelper.getGameState(pin);
-    if (updatedState && updatedState.totalAnswers >= updatedState.totalPlayers) {
-        // Automatically show QUESTION_END after all players answered
-        setTimeout(() => showQuestionEnd(pin, questionIndex, question.id), 1000);
+    // 10. Check if all players answered — use actual answered count to avoid races
+    try {
+        const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+        const currentState = await GamesHelper.getGameState(pin);
+        if (currentState && answeredCount >= currentState.totalPlayers) {
+            // Automatically show QUESTION_END after all players answered
+            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id), 1000);
+        }
+    } catch (err) {
+        console.error('Error checking answered players', err);
     }
 }
 
@@ -521,6 +561,13 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
 export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string) {
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
+
+    // Clear any scheduled timer for this question since we're ending it now
+    try {
+        clearLocalQuestionTimer(pin);
+    } catch (err) {
+        // ignore
+    }
 
     // PDF SPEC: Get answer statistics
     const answerStats = await GamesHelper.getAnswerStats(pin, questionId);
