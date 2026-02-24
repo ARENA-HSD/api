@@ -60,12 +60,13 @@ const app = new Elysia()
       startTime: process.hrtime()
     }
   })
-  .onAfterResponse(({ request, set, path, method, startTime }) => {
+  .onAfterResponse(({ request, set, path, startTime }) => {
     if (startTime) {
       const diff = process.hrtime(startTime);
       const durationSeconds = (diff[0] * 1e9 + diff[1]) / 1e9;
 
       const statusCode = set.status ? String(set.status) : '200';
+      const method = request.method;
 
       httpRequestDurationSeconds.labels(method, path, statusCode).observe(durationSeconds);
       httpRequestsTotal.labels(method, path, statusCode).inc();
@@ -243,8 +244,9 @@ const app = new Elysia()
                 await publish(`game:${pin}`, JSON.stringify({
                   type: 'LOBBY_UPDATE',
                   data: {
-                    count: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1),
+                    players: playerList,
                     recentPlayers,
+                    totalPlayers: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1)
                   }
                 }));
               } catch (err) {
