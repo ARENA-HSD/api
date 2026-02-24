@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 2,
+  "id": 0,
   "links": [],
   "panels": [
     {
@@ -49,7 +49,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -111,7 +111,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(process_cpu_seconds_total{app=\"arena-api\"}[1m])",
+          "expr": "sum(rate(process_cpu_seconds_total{env=\"dev\"}[1m]))",
           "legendFormat": "CPU Core Usage",
           "range": true,
           "refId": "A"
@@ -207,7 +207,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(process_resident_memory_bytes{app=\"arena-api\"}) / (1024*1024)",
+          "expr": "(sum(process_resident_memory_bytes{env=\"dev\"}) / (1024*1024)) / 2",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -244,7 +244,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -304,8 +304,8 @@
             "type": "prometheus",
             "uid": "Prometheus"
           },
-          "editorMode": "code",
-          "expr": "rate(http_requests_total[1m])",
+          "editorMode": "builder",
+          "expr": "rate(http_requests_total{route=\"/metrics\"}[1m])",
           "legendFormat": "{{method}} {{route}} - {{status_code}}",
           "range": true,
           "refId": "A"
@@ -343,7 +343,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -400,7 +400,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "nodejs_eventloop_lag_seconds{app=\"arena-api\"}",
+          "expr": "nodejs_eventloop_lag_seconds{env=\"dev\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -437,7 +437,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -535,7 +535,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -633,7 +633,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -690,7 +690,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(nodejs_gc_duration_seconds_sum{app=\"arena-api\"}[1m])",
+          "expr": "rate(nodejs_gc_duration_seconds_sum{env=\"dev\"}[1m])",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -727,7 +727,7 @@
             },
             "insertNulls": false,
             "lineInterpolation": "linear",
-            "lineWidth": 1,
+            "lineWidth": 2,
             "pointSize": 5,
             "scaleDistribution": {
               "type": "linear"
@@ -784,7 +784,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "active_requests{app=\"arena-api\"}",
+          "expr": "active_requests{env=\"dev\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -828,10 +828,47 @@
             "type": "loki",
             "uid": "Loki"
           },
+          "direction": "backward",
           "editorMode": "code",
           "expr": "{container=\"arena-backend-dev\"}",
           "queryType": "range",
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{container=\"arena-postgres-dev\"}",
+          "hide": false,
+          "queryType": "range",
+          "refId": "B"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{container=\"arena-redis-dev\"}",
+          "hide": false,
+          "queryType": "range",
+          "refId": "C"
+        },
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "P8E80F9AEF21F6940"
+          },
+          "direction": "backward",
+          "editorMode": "code",
+          "expr": "{container=\"arena-pgweb-dev\"}",
+          "hide": false,
+          "queryType": "range",
+          "refId": "D"
         }
       ],
       "title": "Application Logs",
@@ -846,12 +883,12 @@
     "list": []
   },
   "time": {
-    "from": "now-15m",
+    "from": "now-1h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Arena API Dashboard",
   "uid": "arena-main-dash",
-  "version": 5
+  "version": 6
 }

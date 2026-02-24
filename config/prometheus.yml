@@ -12,3 +12,19 @@ scrape_configs:
       - targets: ['api:3000']
         labels:
           env: 'dev'
+  - job_name: 'grafana'
+    static_configs:
+      - targets: ['grafana:3000']
+        labels:
+          env: 'dev'
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+        labels:
+          env: 'dev'
+  - job_name: 'promtail'
+    static_configs:
+      - targets: ['promtail:9080']
+        labels:
+          env: 'dev'
+    
