@@ -244,9 +244,8 @@ const app = new Elysia()
                 await publish(`game:${pin}`, JSON.stringify({
                   type: 'LOBBY_UPDATE',
                   data: {
-                    players: playerList,
-                    recentPlayers,
-                    totalPlayers: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1)
+                    count: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1),
+                    recentPlayers
                   }
                 }));
               } catch (err) {
