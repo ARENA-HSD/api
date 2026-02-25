@@ -9,7 +9,7 @@ import { eq, and } from 'drizzle-orm';
  * Resolves organization ID from subdomain
  * Internal use only - use validateOrgAccessAndGetOrgId for public access
  */
-async function getOrgIdBySubdomain(subdomain: string): Promise<string | null> {
+export async function getOrgIdBySubdomain(subdomain: string): Promise<string | null> {
     const org = await db.query.organizations.findFirst({
         where: eq(schema.organizations.subdomain, subdomain),
         columns: {

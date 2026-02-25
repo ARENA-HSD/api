@@ -1,65 +1,255 @@
 import { Elysia, t } from "elysia";
+import bearer from "@elysiajs/bearer";
+import jwtPlugin from "@elysiajs/jwt";
+import { jwtConfig } from "../../middleware/auth.middleware";
+import { requireAuth } from "../../shared/helpers/crypto.helper";
+import { getOrgIdBySubdomain, getUserRoleInOrg } from "../../middleware/rbac.middleware";
+import * as invitationService from "./invitations.service";
 
 export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitations" })
-  .post("/",  async ({ set, params, headers, cookie }) => {
-      return {
-        success: true
-      };
+  .use(bearer())
+  .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
+
+  //  POST — Create invitation -
+  .post(
+    "/",
+    async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
+      // 1. Auth
+      const auth = await requireAuth(jwt, bearerToken, cookie, set);
+      if (!auth) return { success: false, message: "Unauthorized" };
+
+      // 2. Resolve org
+      const orgId = await getOrgIdBySubdomain(params.orgDomain);
+      if (!orgId) {
+        set.status = 404;
+        return { success: false, message: "Organization not found" };
+      }
+
+      // 3. Only SUPER_ADMIN can invite
+      const role = await getUserRoleInOrg(auth.sub, orgId);
+      if (role !== "SUPER_ADMIN") {
+        set.status = 403;
+        return { success: false, message: "Only Super Admin can send invitations" };
+      }
+
+      // 4. Create invitation
+      try {
+        const result = await invitationService.createInvitation(
+          orgId,
+          auth.sub,
+          body.inviteeUsername
+        );
+
+        if (!result.success) {
+          set.status = result.status;
+          return { success: false, message: result.message };
+        }
+
+        return { success: true, data: result.data };
+      } catch (error) {
+        set.status = 500;
+        return { success: false, message: "Failed to create invitation" };
+      }
     },
     {
       body: t.Object({
-        inviteeUsername: t.String(),
+        inviteeUsername: t.String({ minLength: 1 }),
       }),
       response: t.Object({
         success: t.Boolean(),
         data: t.Optional(t.Any()),
         message: t.Optional(t.String()),
       }),
-      detail: { 
-	        summary: 'Create the invitation', 
-            description: 'Cookieden inviterId alırsınız. orgDomain parametreden gelir. usernamdende inviteeId bulunur ve davet oluşturulur.',
-	        tags: ['Invitation Operations'] 
-	  } 
-    })
-  .delete("/:invitationId",  async ({ set, params, headers, cookie }) => {
-      return {
-        success: true
-      };
+      detail: {
+        summary: "Create an invitation",
+        description: "Super Admin invites a user by username. The invited user gets a PENDING invitation.",
+        tags: ["Invitation Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  )
+
+  //  PATCH  — Accept/Reject ─
+  .patch(
+    "/:invitationId",
+    async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
+      // 1. Auth
+      const auth = await requireAuth(jwt, bearerToken, cookie, set);
+      if (!auth) return { success: false, message: "Unauthorized" };
+
+      // 2. Validate status value
+      if (body.status !== "ACCEPTED" && body.status !== "REJECTED") {
+        set.status = 400;
+        return { success: false, message: "Status must be ACCEPTED or REJECTED" };
+      }
+
+      // 3. Respond to invitation
+      try {
+        const result = await invitationService.respondToInvitation(
+          params.invitationId,
+          auth.sub,
+          body.status
+        );
+
+        if (!result.success) {
+          set.status = result.status;
+          return { success: false, message: result.message };
+        }
+
+        return { success: true, data: result.data };
+      } catch (error) {
+        set.status = 500;
+        return { success: false, message: "Failed to update invitation" };
+      }
     },
     {
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
+      params: t.Object({
+        orgDomain: t.String(),
+        invitationId: t.String({ format: "uuid" }),
       }),
-      detail: { 
-	        summary: 'Delete the invitation', 
-	        tags: ['Invitation Operations'] 
-	  } 
-    })
-  .patch("/:invitationId",  async ({ set, params, headers, cookie }) => {
-      return {
-        success: true
-      };
-    },
-    {
       body: t.Object({
-        status: t.Optional(t.String()),
+        status: t.String(),
       }),
       response: t.Object({
         success: t.Boolean(),
         data: t.Optional(t.Any()),
         message: t.Optional(t.String()),
       }),
-      detail: { 
-	        summary: 'Update the invitation', 
-	        tags: ['Invitation Operations'] 
-	  } 
-    })
-  .get("/:invitationId",  async ({ set, params, headers, cookie }) => {
-      return {
-        success: true
-      };
+      detail: {
+        summary: "Accept or reject an invitation",
+        description: "The invited user can accept (becomes MANAGER) or reject the invitation.",
+        tags: ["Invitation Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  )
+
+  //  DELETE  — Cancel ─
+  .delete(
+    "/:invitationId",
+    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+      // 1. Auth
+      const auth = await requireAuth(jwt, bearerToken, cookie, set);
+      if (!auth) return { success: false, message: "Unauthorized" };
+
+      // 2. Cancel invitation
+      try {
+        const result = await invitationService.cancelInvitation(
+          params.invitationId,
+          auth.sub
+        );
+
+        if (!result.success) {
+          set.status = result.status;
+          return { success: false, message: result.message };
+        }
+
+        return { success: true, data: result.data };
+      } catch (error) {
+        set.status = 500;
+        return { success: false, message: "Failed to cancel invitation" };
+      }
+    },
+    {
+      params: t.Object({
+        orgDomain: t.String(),
+        invitationId: t.String({ format: "uuid" }),
+      }),
+      response: t.Object({
+        success: t.Boolean(),
+        data: t.Optional(t.Any()),
+        message: t.Optional(t.String()),
+      }),
+      detail: {
+        summary: "Cancel a pending invitation",
+        description: "Only the inviter (Super Admin) can cancel a pending invitation.",
+        tags: ["Invitation Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  )
+
+  //  GET  — Get by ID ─
+  .get(
+    "/:invitationId",
+    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+      // 1. Auth
+      const auth = await requireAuth(jwt, bearerToken, cookie, set);
+      if (!auth) return { success: false, message: "Unauthorized" };
+
+      // 2. Get invitation
+      try {
+        const result = await invitationService.getInvitationById(
+          params.invitationId,
+          auth.sub
+        );
+
+        if (!result.success) {
+          set.status = result.status;
+          return { success: false, message: result.message };
+        }
+
+        return { success: true, data: result.data };
+      } catch (error) {
+        set.status = 500;
+        return { success: false, message: "Failed to get invitation" };
+      }
+    },
+    {
+      params: t.Object({
+        orgDomain: t.String(),
+        invitationId: t.String({ format: "uuid" }),
+      }),
+      response: t.Object({
+        success: t.Boolean(),
+        data: t.Optional(t.Any()),
+        message: t.Optional(t.String()),
+      }),
+      detail: {
+        summary: "Get invitation by ID",
+        description: "Accessible by the inviter or the invitee only.",
+        tags: ["Invitation Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  )
+
+  //  GET  — List all ─
+  .get(
+    "/",
+    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+      // 1. Auth
+      const auth = await requireAuth(jwt, bearerToken, cookie, set);
+      if (!auth) return { success: false, message: "Unauthorized" };
+
+      // 2. Resolve org
+      const orgId = await getOrgIdBySubdomain(params.orgDomain);
+      if (!orgId) {
+        set.status = 404;
+        return { success: false, message: "Organization not found" };
+      }
+
+      // 3. Get user's role (may be null if not a member)
+      const role = await getUserRoleInOrg(auth.sub, orgId);
+
+      // 4. List invitations (role determines what they see)
+      try {
+        const result = await invitationService.getInvitationsByOrg(
+          orgId,
+          auth.sub,
+          role
+        );
+
+        if (!result.success) {
+          set.status = result.status;
+          return { success: false, message: result.message };
+        }
+
+        return { success: true, data: result.data };
+      } catch (error) {
+        set.status = 500;
+        return { success: false, message: "Failed to list invitations" };
+      }
     },
     {
       response: t.Object({
@@ -67,24 +257,11 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
         data: t.Optional(t.Any()),
         message: t.Optional(t.String()),
       }),
-      detail: { 
-	        summary: 'Get invitation by ID', 
-	        tags: ['Invitation Operations'] 
-	  } 
-    })
-  .get("/",  async ({ set, params, headers, cookie }) => {
-      return {
-        success: true
-      };
-    },
-    {
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: { 
-	        summary: 'Get all invitations for the organization', 
-	        tags: ['Invitation Operations'] 
-	  } 
-    });
+      detail: {
+        summary: "List invitations for the organization",
+        description: "Super Admin sees all invitations. Others see only invitations addressed to them.",
+        tags: ["Invitation Operations"],
+        security: [{ BearerAuth: [] }],
+      },
+    }
+  );

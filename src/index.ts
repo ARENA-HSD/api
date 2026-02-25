@@ -9,6 +9,7 @@ import { questionsRoutes } from "./modules/questions/questions.controller";
 import { quizzesRoutes } from "./modules/quizzes/quizzes.controller";
 import { loginRoutes } from "./modules/auth/auth.controller";
 import { invitationsRoutes } from "./modules/invitations/invitations.controller";
+import { cleanupExpiredInvitations } from "./modules/invitations/invitations.service";
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
@@ -57,7 +58,11 @@ const redisClient = new RedisClient();
 // Track active websocket connections for server-level publishing
 const activeSockets = new Set<any>();
 
-const app = new Elysia()
+const app = new Elysia({
+  serve: {
+    maxRequestBodySize: 1024 * 100, // 100KB payload limiti
+  },
+})
   .derive(() => {
     return {
       startTime: process.hrtime()
@@ -286,3 +291,10 @@ import('./core/pubsub/broadcaster').then(({ setPublisher }) => {
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
 );
+
+// Her saat suresi dolmus davetleri temizle
+setInterval(async () => {
+  const count = await cleanupExpiredInvitations();
+  if (count > 0) console.log(`🧹 ${count} expired invitation(s) cleaned up`);
+}, 60 * 60 * 1000);
+cleanupExpiredInvitations();
