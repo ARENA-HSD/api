@@ -57,7 +57,11 @@ const redisClient = new RedisClient();
 // Track active websocket connections for server-level publishing
 const activeSockets = new Set<any>();
 
-const app = new Elysia()
+const app = new Elysia({
+  serve: {
+    maxRequestBodySize: 1024 * 50, // 50KB payload limiti
+  },
+})
   .derive(() => {
     return {
       startTime: process.hrtime()
