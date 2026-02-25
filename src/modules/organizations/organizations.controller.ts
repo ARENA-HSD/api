@@ -103,7 +103,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // GET /org/:orgDomain - Get organization by subdomain (PUBLIC)
+  // GET  - Get organization by subdomain (PUBLIC)
   .get(
     "/:orgDomain",
     async ({ set, params }) => {
@@ -143,7 +143,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // PATCH /org/:orgDomain - Update organization
+  // PATCH  - Update organization
   .patch(
     "/:orgDomain",
     async ({ set, params, body, bearer, cookie, jwt }) => {
@@ -222,7 +222,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // DELETE /org/:orgDomain - Delete organization
+  // DELETE  - Delete organization
   .delete(
     "/:orgDomain",
     async ({ set, params, bearer, cookie, jwt }) => {
@@ -275,9 +275,9 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // ─── MEMBER MANAGEMENT ENDPOINTS ─────────────────────
+  //  MEMBER MANAGEMENT ENDPOINTS
 
-  // GET /org/:orgDomain/members - List members
+  // GET  - List members
   .get(
     "/:orgDomain/members",
     async ({ set, params, bearer, cookie, jwt }) => {
@@ -323,7 +323,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // PATCH /org/:orgDomain/members/:userId - Change member role
+  // PATCH  - Change member role
   .patch(
     "/:orgDomain/members/:userId",
     async ({ set, params, body, bearer, cookie, jwt }) => {
@@ -401,7 +401,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
     }
   )
 
-  // DELETE /org/:orgDomain/members/:userId - Remove member
+  // DELETE  - Remove member
   .delete(
     "/:orgDomain/members/:userId",
     async ({ set, params, bearer, cookie, jwt }) => {

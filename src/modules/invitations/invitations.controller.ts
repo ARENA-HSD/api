@@ -10,7 +10,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
   .use(bearer())
   .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
 
-  // ─── POST /org/:orgDomain/invitations — Create invitation ─────
+  //  POST — Create invitation -
   .post(
     "/",
     async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
@@ -69,7 +69,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
     }
   )
 
-  // ─── PATCH /org/:orgDomain/invitations/:invitationId — Accept/Reject ─────
+  //  PATCH  — Accept/Reject ─
   .patch(
     "/:invitationId",
     async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
@@ -124,7 +124,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
     }
   )
 
-  // ─── DELETE /org/:orgDomain/invitations/:invitationId — Cancel ─────
+  //  DELETE  — Cancel ─
   .delete(
     "/:invitationId",
     async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
@@ -169,7 +169,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
     }
   )
 
-  // ─── GET /org/:orgDomain/invitations/:invitationId — Get by ID ─────
+  //  GET  — Get by ID ─
   .get(
     "/:invitationId",
     async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
@@ -214,7 +214,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
     }
   )
 
-  // ─── GET /org/:orgDomain/invitations — List all ─────
+  //  GET  — List all ─
   .get(
     "/",
     async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
