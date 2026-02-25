@@ -285,6 +285,7 @@ export async function getPlayerInfo(
         streak: parseInt(info.streak),
         ip: info.ip,
         hasAnswered: info.hasAnswered === 'true',
+        lastPoints: info.lastPoints ? parseInt(info.lastPoints) : 0,
     };
 }
 
@@ -321,7 +322,7 @@ export async function updatePlayerScore(
     await redis.zadd(getLeaderboardKey(pin), newScore, playerInfo.nickname);
 
     // Mark as answered
-    await redis.hset(playerKey, 'hasAnswered', 'true');
+    await redis.hset(playerKey, 'hasAnswered', 'true', 'lastPoints', scoreToAdd.toString());
 
     return { newScore, newStreak };
 }
@@ -350,7 +351,7 @@ export async function resetAllAnswerFlags(pin: string): Promise<void> {
     const socketIds = await redis.smembers(getPlayersKey(pin));
 
     for (const socketId of socketIds) {
-        await redis.hset(getPlayerInfoKey(pin, socketId), 'hasAnswered', 'false');
+        await redis.hset(getPlayerInfoKey(pin, socketId), 'hasAnswered', 'false', 'lastPoints', '0');
     }
 
     // Reset total answers

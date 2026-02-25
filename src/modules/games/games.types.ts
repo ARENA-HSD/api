@@ -26,6 +26,7 @@ export interface PlayerInfo {
     streak: number;
     ip: string;
     hasAnswered: boolean;
+    lastPoints?: number;
 }
 
 export interface LeaderboardEntry {
@@ -107,7 +108,6 @@ export interface StartGameEvent {
 export interface SubmitAnswerEvent {
     type: 'SUBMIT_ANSWER';
     data: {
-        questionId: string;
         answerIndex: number;
     };
 }

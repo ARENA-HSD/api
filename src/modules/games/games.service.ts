@@ -220,15 +220,6 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     const existingNicknames = await GamesHelper.getAllNicknames(pin);
     const uniqueNickname = GamesHelper.handleNicknameDuplication(nickname, existingNicknames);
 
-    // 4. Add player to game
-    await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
-
-    // PDF SPEC: Add to recent players list (LTRIM to 28)
-    await GamesHelper.addRecentPlayer(pin, uniqueNickname);
-
-    // 5. Subscribe to game room
-    ws.subscribe(`game:${pin}`);
-
     // Refresh state after adding player
     const updatedState = await GamesHelper.getGameState(pin);
 
@@ -236,6 +227,16 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     if (updatedState && !updatedState.hostSocketId) {
         await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
         ws.subscribe(`game:${pin}:host`);
+    } else {
+        // 4. Add player to game
+        await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
+
+        // PDF SPEC: Add to recent players list (LTRIM to 28)
+        await GamesHelper.addRecentPlayer(pin, uniqueNickname);
+        // 5. Subscribe to game room
+        ws.subscribe(`game:${pin}`);
+        // Subscribe this socket to a personal channel so server can send individualized messages
+        ws.subscribe(`game:${pin}:player:${ws.id}`);
     }
 
     // 6. Notify player of successful join
@@ -249,14 +250,16 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
 
     // 7. Notify all players in room (PLAYER_JOINED)
     try {
+        
         const { publish } = await import('../../core/pubsub/broadcaster');
-        await publish(`game:${pin}`, JSON.stringify({
+        /*
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'PLAYER_JOINED',
             data: {
                 nickname: uniqueNickname,
                 playerCount: updatedState ? updatedState.totalPlayers : 0,
             },
-        }));
+        }));*/
 
         // Also broadcast LOBBY_UPDATE after join so clients refresh lobby immediately
         const players = await GamesHelper.getAllPlayerSockets(pin);
@@ -270,7 +273,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
 
         const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
 
-        await publish(`game:${pin}`, JSON.stringify({
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'LOBBY_UPDATE',
             data: {
                 count: playerList.length,
@@ -320,7 +323,7 @@ export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
     // 5. Notify everyone
     try {
         const { publish } = await import('../../core/pubsub/broadcaster');
-        await publish(`game:${pin}`, JSON.stringify({
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'PLAYER_KICKED',
             data: { nickname: playerInfo.nickname },
         }));
@@ -444,7 +447,8 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
                 const currentState = await GamesHelper.getGameState(pin);
                 // only trigger if still on the same question index
                 if (currentState && currentState.currentQuestionIndex === questionIndex) {
-                    await showQuestionEnd(pin, questionIndex, question.id);
+                    
+                    await showQuestionEnd(pin, questionIndex, question.id, question.correctIndex);
                 }
             } catch (err) {
                 console.error('Error in scheduled question end', err);
@@ -461,7 +465,7 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
  * PDF SPEC: Handle SUBMIT_ANSWER event
  */
 export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data']) {
-    const { questionId, answerIndex } = data;
+    const { answerIndex } = data;
     const pin = (ws.data as any)?.pin;
     if (!pin) return;
 
@@ -530,6 +534,7 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
     const previousRank = await GamesHelper.getPreviousRank(pin, playerInfo.nickname);
 
     // 9. Send personal result to player
+    /*
     ws.send(JSON.stringify({
         type: 'ANSWER_RESULT',
         data: {
@@ -541,14 +546,14 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
             streak: newStreak,
         },
     }));
-
+    */
     // 10. Check if all players answered — use actual answered count to avoid races
     try {
         const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
         const currentState = await GamesHelper.getGameState(pin);
         if (currentState && answeredCount >= currentState.totalPlayers) {
             // Automatically show QUESTION_END after all players answered
-            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id), 1000);
+            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id, question.correctIndex), 1000);
         }
     } catch (err) {
         console.error('Error checking answered players', err);
@@ -558,7 +563,7 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
 /**
  * PDF SPEC: Helper - Show QUESTION_END with differentiated data
  */
-export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string) {
+export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string, correctIndex: number) {
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
 
@@ -581,20 +586,39 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_END',
         data: {
-            qIndex: questionIndex,
+            correctIndex, // only correct answer index for host
             answerStats, // { "0": 15, "1": 5, "2": 40, "3": 0 }
             streakLeaders,
         },
     }));
 
-    // To players: only streak leaders
-    await publish(`game:${pin}`, JSON.stringify({
-        type: 'QUESTION_END',
-        data: {
-            qIndex: questionIndex,
-            streakLeaders,
-        },
-    }));
+    // To players: send individualized data to each player's personal channel
+    try {
+        const playerSockets = await GamesHelper.getAllPlayerSockets(pin);
+        for (const sid of playerSockets) {
+            const pInfo = await GamesHelper.getPlayerInfo(pin, sid);
+            if (!pInfo) continue;
+
+            const playerAnswer = await GamesHelper.getPlayerAnswer(pin, questionId, sid);
+            const playerIsCorrect = playerAnswer !== null ? (playerAnswer === correctIndex) : false;
+            const playerPoints = pInfo.lastPoints || 0;
+            const playerNewScore = pInfo.score || 0;
+
+            await publish(`game:${pin}:player:${sid}`, JSON.stringify({
+                type: 'QUESTION_END',
+                data: {
+                    qIndex: questionIndex,
+                    streakLeaders,
+                    correctIndex,
+                    correct: playerIsCorrect,
+                    points: playerPoints,
+                    newScore: playerNewScore,
+                },
+            }));
+        }
+    } catch (err) {
+        console.error('Failed to publish individualized QUESTION_END', err);
+    }
 }
 
 /**

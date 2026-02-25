@@ -54,6 +54,9 @@ for (const [key, defaultValue] of Object.entries(optionalEnvVars)) {
 
 const redisClient = new RedisClient();
 
+// Track active websocket connections for server-level publishing
+const activeSockets = new Set<any>();
+
 const app = new Elysia()
   .derive(() => {
     return {
@@ -158,14 +161,8 @@ const app = new Elysia()
   .ws('/ws', {
     async open(ws) {
       console.log('WebSocket connected:', ws.id);
-      // Set broadcaster publisher once for service-layer broadcasting
-      try {
-        const { setPublisher } = await import('./core/pubsub/broadcaster');
-        // bind ws.publish to ensure correct `this`
-        setPublisher((ws.publish as any).bind(ws));
-      } catch (err) {
-        console.error('Failed to set publisher', err);
-      }
+      // Add to active sockets
+      activeSockets.add(ws);
     },
 
     async message(ws, message: any) {
@@ -213,6 +210,13 @@ const app = new Elysia()
       const metadata = ws.data as any;
 
       console.log('WebSocket disconnected:', socketId);
+
+      // Remove from active sockets so we don't publish to closed sockets
+      try {
+        activeSockets.delete(ws);
+      } catch (err) {
+        // ignore
+      }
 
       // ws.data contains pin if player joined a game
       if (metadata?.pin) {
@@ -263,15 +267,21 @@ const app = new Elysia()
     },
   })
   .use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    origin: [/^https?:\/\/(.*?\.)?localhost:\d+$/],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
     credentials: true
   }))
   ;
 
 // Expose server instance for service-level publishes used in games.service
 app.listen(3000);
+
+import('./core/pubsub/broadcaster').then(({ setPublisher }) => {
+  setPublisher(async (channel: string, message: string) => {
+    app.server?.publish(channel, message);
+  });
+}).catch(err => console.error('Failed to set publisher', err));
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
