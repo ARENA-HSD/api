@@ -706,6 +706,11 @@ export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data'
             data: { finalScores },
         }));
 
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'GAME_OVER',
+            data: { finalScores },
+        }));
+
         // Cleanup game after 5 minutes
         setTimeout(() => GamesHelper.cleanupGame(pin), 5 * 60 * 1000);
     } else {
