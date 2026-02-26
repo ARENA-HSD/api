@@ -426,11 +426,14 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     // 6. Send QUESTION_START (differentiated by mode)
     const filteredQuestion = filterQuestionByMode(questionData, state.mode);
 
+    // 7. Send QUESTION_START (differentiated by mode)
+    const filteredPersonalQuestion = filterQuestionByMode(questionData, "PERSONAL"); // send full data to host for PERSONAL mode
+
     // PDF SPEC: To host (PERSONAL mode)
     const { publish } = await import('../../core/pubsub/broadcaster');
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_START',
-        data: { ...filteredQuestion, mode: 'PERSONAL' },
+        data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
     }));
 
     // PDF SPEC: To players (use game mode)

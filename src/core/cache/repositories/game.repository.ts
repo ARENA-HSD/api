@@ -169,6 +169,9 @@ export async function updateGameState(
     pin: string,
     updates: Partial<GameState>
 ): Promise<void> {
+    if (Object.keys(updates).length === 0) {
+        return;
+    }
     await redis.hset(getGameStateKey(pin), updates as any);
 }
 
@@ -400,6 +403,10 @@ export async function loadAnswerKey(
     pin: string,
     questions: QuestionData[]
 ): Promise<void> {
+    if (questions.length === 0) {
+        return;
+    }
+
     const answerKey: Record<string, number> = {};
 
     for (const question of questions) {
@@ -541,6 +548,10 @@ export async function saveRankSnapshot(pin: string): Promise<void> {
         -1,
         'WITHSCORES'
     );
+
+    if (leaderboard.length === 0) {
+        return;
+    }
 
     const snapshot: Record<string, number> = {};
     let rank = 1;
