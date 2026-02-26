@@ -18,7 +18,7 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 0,
+  "id": 1,
   "links": [],
   "panels": [
     {
@@ -305,7 +305,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "builder",
-          "expr": "rate(http_requests_total{route=\"/metrics\"}[1m])",
+          "expr": "rate(http_requests_total{route!=\"/metrics\"}[1m])",
           "legendFormat": "{{method}} {{route}} - {{status_code}}",
           "range": true,
           "refId": "A"
@@ -883,12 +883,12 @@
     "list": []
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-15m",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Arena API Dashboard",
   "uid": "arena-main-dash",
-  "version": 6
+  "version": 7
 }

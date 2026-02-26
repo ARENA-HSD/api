@@ -117,4 +117,4 @@ Her domain modülü şu yapıyı takip eder:
 - Kullanıcı adı: admin
 - Şifre: admin
 - Dashboard dosyası: `config/grafana/dashboards/arena_dashboard.json`
-- Dashboard'u import etmek için: `Grafana -> Dashboards -> Import` -> `Upload JSON file`
+- Dashboard'u import etmek için: `Grafana -> Dashboards -> Import -> Upload JSON file`
