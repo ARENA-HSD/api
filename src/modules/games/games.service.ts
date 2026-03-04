@@ -296,7 +296,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
  * Handle KICK_PLAYER event
  */
 export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
-    const { socketId, ban } = data;
+    const { nickname, ban } = data;
     const pin = (ws.data as any)?.pin;
     if (!pin) return;
 
@@ -310,20 +310,40 @@ export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
         return;
     }
 
-    // 2. Get player info to ban IP
+    // 2. Find socketId by nickname
+    const socketId = await GamesHelper.findSocketByNickname(pin, nickname);
+    if (!socketId) {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Player not found' },
+        }));
+        return;
+    }
+
+    // 3. Get player info to ban IP
     const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
     if (!playerInfo) return;
 
     if (ban) {
-        // 3. Ban IP
+        // 4. Ban IP
         await GamesHelper.addToBanList(pin, playerInfo.ip);
-
     }
 
-    // 4. Remove player
+    // 5. Send FORCE_DISCONNECT to the kicked player before removing
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}:player:${socketId}`, JSON.stringify({
+            type: 'FORCE_DISCONNECT',
+            data: { reason: ban ? 'You have been banned from this game' : 'You have been kicked from this game' },
+        }));
+    } catch (err) {
+        console.error('Failed to publish FORCE_DISCONNECT', err);
+    }
+
+    // 6. Remove player
     await GamesHelper.removePlayer(pin, socketId);
 
-    // 5. Notify everyone
+    // 7. Notify host
     try {
         const { publish } = await import('../../core/pubsub/broadcaster');
         await publish(`game:${pin}:host`, JSON.stringify({

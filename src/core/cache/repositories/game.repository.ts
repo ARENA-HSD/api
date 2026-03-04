@@ -486,6 +486,18 @@ export async function getAllPlayerSockets(pin: string): Promise<string[]> {
 }
 
 /**
+ * Finds a player's socketId by their nickname
+ */
+export async function findSocketByNickname(pin: string, nickname: string): Promise<string | null> {
+    const socketIds = await getAllPlayerSockets(pin);
+    for (const sid of socketIds) {
+        const info = await getPlayerInfo(pin, sid);
+        if (info && info.nickname === nickname) return sid;
+    }
+    return null;
+}
+
+/**
  * Counts how many players have `hasAnswered` === true for current question
  */
 export async function countAnsweredPlayers(pin: string): Promise<number> {
@@ -689,15 +701,15 @@ export async function getAnswerStats(pin: string, questionId: string): Promise<R
 /**
  * Gets players with highest streaks
  */
-export async function getStreakLeaders(pin: string, limit: number = 5): Promise<Array<{ nick: string; streak: number }>> {
+export async function getStreakLeaders(pin: string, limit: number = 5): Promise<Array<{ nickname: string; streak: number }>> {
     const socketIds = await redis.smembers(getPlayersKey(pin));
-    const streaks: Array<{ nick: string; streak: number }> = [];
+    const streaks: Array<{ nickname: string; streak: number }> = [];
 
     for (const socketId of socketIds) {
         const playerInfo = await getPlayerInfo(pin, socketId);
         if (playerInfo && playerInfo.streak > 0) {
             streaks.push({
-                nick: playerInfo.nickname,
+                nickname: playerInfo.nickname,
                 streak: playerInfo.streak,
             });
         }

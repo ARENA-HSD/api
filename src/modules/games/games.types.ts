@@ -93,7 +93,7 @@ export interface JoinRoomEvent {
 export interface KickPlayerEvent {
     type: 'KICK_PLAYER';
     data: {
-        socketId: string;
+        nickname: string;
         ban: boolean;
     };
 }
