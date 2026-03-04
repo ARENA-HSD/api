@@ -4,6 +4,7 @@ import jwtPlugin from "@elysiajs/jwt";
 import { jwtConfig } from "../../middleware/auth.middleware";
 import { requireAuth } from "../../shared/helpers/crypto.helper";
 import * as questionService from "./questions.service";
+import { logEvent } from "../../shared/helpers/log.helper";
 
 export const questionsRoutes = new Elysia({
   prefix: "/org/:orgDomain/quizzes/:quizId/questions",
@@ -57,6 +58,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to create question" };
       }
     },
@@ -135,6 +137,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to fetch questions" };
       }
     },
@@ -188,6 +191,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to fetch question" };
       }
     },
@@ -258,6 +262,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to update question" };
       }
     },
@@ -343,6 +348,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to delete question" };
       }
     },
@@ -365,10 +371,10 @@ export const questionsRoutes = new Elysia({
       },
     }
   )
-   /**
-   * POST /org/:orgDomain/quizzes/:quizId/questions/reorder
-   * Reorder questions
-   */
+  /**
+  * POST /org/:orgDomain/quizzes/:quizId/questions/reorder
+  * Reorder questions
+  */
   .post(
     '/reorder',
     async ({ params, body, bearer, jwt, set }) => {
@@ -403,6 +409,7 @@ export const questionsRoutes = new Elysia({
       } catch (error) {
         console.error('Reorder questions error:', error);
         set.status = 500;
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },

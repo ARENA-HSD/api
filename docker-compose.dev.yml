@@ -12,6 +12,12 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - NODE_ENV=development
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TELEGRAM_WARNING_TOPIC_ID=${TELEGRAM_WARNING_TOPIC_ID}
+      - TELEGRAM_INFO_TOPIC_ID=${TELEGRAM_INFO_TOPIC_ID}
+      - TELEGRAM_ERROR_TOPIC_ID=${TELEGRAM_ERROR_TOPIC_ID}
+      - TELEGRAM_CRITICAL_TOPIC_ID=${TELEGRAM_CRITICAL_TOPIC_ID}
     volumes:
       - .:/app # Kodunu içeri yansıtır (Hot Reload için şart)
       - /app/node_modules # Konteynerin kendi modüllerini korur (ÖNEMLİ)

@@ -5,6 +5,7 @@ import { jwtConfig } from "../../middleware/auth.middleware";
 import { requireAuth } from "../../shared/helpers/crypto.helper";
 import { getOrgIdBySubdomain, getUserRoleInOrg } from "../../middleware/rbac.middleware";
 import * as invitationService from "./invitations.service";
+import { logEvent } from "../../shared/helpers/log.helper";
 
 export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitations" })
   .use(bearer())
@@ -29,6 +30,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
+        logEvent({ event: 'invitation.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
         return { success: false, message: "Only Super Admin can send invitations" };
       }
 
