@@ -48,6 +48,7 @@ export interface CreateGameResponse {
     gameId: string;
     pin: string;
     mode: GameMode;
+    message?: string;
 }
 
 export interface GameSummaryResponse {
@@ -56,6 +57,7 @@ export interface GameSummaryResponse {
     totalPlayers: number;
     winner?: string;
     finalScores?: LeaderboardEntry[];
+    message?: string;
 }
 
 
