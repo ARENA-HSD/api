@@ -5,6 +5,7 @@ import { jwtConfig } from "../../middleware/auth.middleware";
 import { requireAuth } from "../../shared/helpers/crypto.helper";
 import { getOrgIdBySubdomain, getUserRoleInOrg } from "../../middleware/rbac.middleware";
 import * as orgService from "./organizations.service";
+import { logEvent } from "../../shared/helpers/log.helper";
 
 export const orgRoutes = new Elysia({ prefix: "/org" })
   .use(bearer())
@@ -36,6 +37,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           return { success: false, message: error.message };
         }
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to create organization" };
       }
     },
@@ -85,6 +87,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         };
       } catch (error) {
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to fetch organizations" };
       }
     },
@@ -123,6 +126,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         };
       } catch (error) {
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to fetch organization" };
       }
     },
@@ -183,6 +187,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
             error.message.startsWith("Only Super Admin") ||
             error.message.startsWith("Only Super Admin or Admin")) {
             set.status = 403;
+            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
             return { success: false, message: error.message };
           }
           if (error.message === "New subdomain already exists") {
@@ -191,6 +196,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to update organization" };
       }
     },
@@ -250,10 +256,12 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
           if (error.message === "Only the organization owner can delete it") {
             set.status = 403;
+            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
             return { success: false, message: error.message };
           }
         }
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to delete organization" };
       }
     },
@@ -296,6 +304,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
         set.status = 403;
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
         return { success: false, message: "Only Super Admin or Admin can view members" };
       }
 
@@ -304,6 +313,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         return { success: true, data: { members } };
       } catch (error) {
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to fetch members" };
       }
     },
@@ -342,6 +352,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
         return { success: false, message: "Only Super Admin can change member roles" };
       }
 
@@ -376,6 +387,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to update member role" };
       }
     },
@@ -420,6 +432,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
         return { success: false, message: "Only Super Admin can remove members" };
       }
 
@@ -446,6 +459,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: "Failed to remove member" };
       }
     },

@@ -14,6 +14,7 @@ import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
 import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
+import { logEvent } from "./shared/helpers/log.helper";
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -132,6 +133,7 @@ const app = new Elysia({
     } catch (error) {
       databaseStatus = "disconnected";
       databaseError = error instanceof Error ? error.message : "Unknown error";
+      logEvent({ event: 'db.connection.failed', level: 'CRITICAL', source: 'system', data: { error: databaseError } });
     }
 
     let redisStatus: "connected" | "disconnected" | "error" = "connected";
@@ -148,6 +150,7 @@ const app = new Elysia({
     } catch (error) {
       redisStatus = "disconnected";
       redisError = error instanceof Error ? error.message : "Unknown error";
+      logEvent({ event: 'redis.connection.failed', level: 'CRITICAL', source: 'system', data: { error: redisError } });
     }
 
     const status = databaseStatus === "connected" && redisStatus === "connected" ? "healthy" : "error";
@@ -196,6 +199,7 @@ const app = new Elysia({
             await GameService.handleNextQuestion(ws, data);
             break;
           default:
+            logEvent({ event: 'ws.unknown_event', level: 'WARNING', source: 'code', data: { type, socketId: ws.id } });
             ws.send(JSON.stringify({
               type: 'ERROR',
               data: { message: 'Unknown event type' },
@@ -203,6 +207,7 @@ const app = new Elysia({
         }
       } catch (error) {
         console.error('WebSocket message error:', error);
+        logEvent({ event: 'ws.parse.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown', socketId: ws.id } });
         ws.send(JSON.stringify({
           type: 'ERROR',
           data: { message: 'Internal server error' },
@@ -259,10 +264,12 @@ const app = new Elysia({
                 }));
               } catch (err) {
                 console.error('Failed to publish LOBBY_UPDATE on disconnect', err);
+                logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_disconnect' } });
               }
             } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
-              // ACTIVE: Just log, game continues
+              // ACTIVE: Log player disconnect during game
               console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
+              logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: result.playerInfo.nickname } });
             }
           }
         } catch (error) {
@@ -286,7 +293,10 @@ import('./core/pubsub/broadcaster').then(({ setPublisher }) => {
   setPublisher(async (channel: string, message: string) => {
     app.server?.publish(channel, message);
   });
-}).catch(err => console.error('Failed to set publisher', err));
+}).catch(err => {
+  console.error('Failed to set publisher', err);
+  logEvent({ event: 'ws.publisher.error', level: 'CRITICAL', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown' } });
+});
 
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`

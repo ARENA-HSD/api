@@ -6,6 +6,7 @@
 import { db, schema } from '../../core/database/client';
 import { eq } from 'drizzle-orm';
 import * as GamesHelper from '../../core/cache/repositories/game.repository';
+import { logEvent } from '../../shared/helpers/log.helper';
 import type {
     CreateGameRequest,
     CreateGameResponse,
@@ -203,6 +204,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
             type: 'ERROR',
             data: { message: 'Game not found' },
         }));
+        logEvent({ event: 'game.join.invalid_pin', level: 'WARNING', source: 'code', data: { pin } });
         return;
     }
 
@@ -250,7 +252,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
 
     // 7. Notify all players in room (PLAYER_JOINED)
     try {
-        
+
         const { publish } = await import('../../core/pubsub/broadcaster');
         /*
         await publish(`game:${pin}:host`, JSON.stringify({
@@ -282,6 +284,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         }));
     } catch (err) {
         console.error('Failed to broadcast lobby update on join', err);
+        logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_join' } });
     }
 
     // Store pin in ws.data for cleanup
@@ -345,6 +348,7 @@ export async function handleStartGame(ws: any, data: StartGameEvent['data']) {
             type: 'ERROR',
             data: { message: 'Only host can start game' },
         }));
+        logEvent({ event: 'game.start.denied', level: 'WARNING', source: 'code', data: { pin, socketId: ws.id } });
         return;
     }
 
@@ -450,7 +454,7 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
                 const currentState = await GamesHelper.getGameState(pin);
                 // only trigger if still on the same question index
                 if (currentState && currentState.currentQuestionIndex === questionIndex) {
-                    
+
                     await showQuestionEnd(pin, questionIndex, question.id, question.correctIndex);
                 }
             } catch (err) {

@@ -4,6 +4,7 @@ import jwtPlugin from "@elysiajs/jwt";
 import { eq } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
 import { jwtConfig, toPublicUser } from "../../middleware/auth.middleware";
+import { logEvent } from "../../shared/helpers/log.helper";
 
 export const loginRoutes = new Elysia({ prefix: "/login" })
 	.use(bearer())
@@ -24,7 +25,14 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 				return { success: false, message: "Invalid credentials" };
 			}
 
-			const valid = await Bun.password.verify(password, user.password);
+			let valid: boolean;
+			try {
+				valid = await Bun.password.verify(password, user.password);
+			} catch (error) {
+				logEvent({ event: 'auth.token.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown' } });
+				set.status = 500;
+				return { success: false, message: "Authentication error" };
+			}
 			if (!valid) {
 				set.status = 401;
 				return { success: false, message: "Invalid credentials" };
