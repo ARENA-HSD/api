@@ -7,6 +7,7 @@ import { db, schema } from '../../core/database/client';
 import { eq } from 'drizzle-orm';
 import * as GamesHelper from '../../core/cache/repositories/game.repository';
 import { logEvent } from '../../shared/helpers/log.helper';
+import { isSocketAlive } from '../../core/pubsub/broadcaster';
 import type {
     CreateGameRequest,
     CreateGameResponse,
@@ -225,7 +226,48 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     // Refresh state after adding player
     const updatedState = await GamesHelper.getGameState(pin);
 
-    // If no host assigned yet (after add), set this socket as host and subscribe to host channel
+    // Guard: If this socket is already the host, don't re-process
+    if (updatedState && updatedState.hostSocketId === ws.id) {
+        // Host already assigned to this socket, just re-send JOIN_SUCCESS
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: nickname },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
+    }
+
+    // Guard: If this socket is already a registered player, don't add again
+    const existingPlayerInfo = await GamesHelper.getPlayerInfo(pin, ws.id);
+    if (existingPlayerInfo) {
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: existingPlayerInfo.nickname },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
+    }
+
+    // Host reconnection: hostSocketId is set but old socket is dead (page navigation)
+    if (updatedState && updatedState.hostSocketId) {
+        if (!isSocketAlive(updatedState.hostSocketId)) {
+            // Old host socket is dead → this is a host reconnection
+            console.log(`Host reconnected: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
+            await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
+            ws.subscribe(`game:${pin}:host`);
+            ws.send(JSON.stringify({
+                type: 'JOIN_SUCCESS',
+                data: { status: 'WAITING', myNick: nickname },
+            }));
+            (ws.data as any).pin = pin;
+            (ws.data as any).socketId = ws.id;
+            return;
+        }
+    }
+
+    // If no host assigned yet, set this socket as host and subscribe to host channel
     if (updatedState && !updatedState.hostSocketId) {
         await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
         ws.subscribe(`game:${pin}:host`);
@@ -591,6 +633,13 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
  * PDF SPEC: Helper - Show QUESTION_END with differentiated data
  */
 export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string, correctIndex: number) {
+    // Atomik lock: ayni soru icin showQuestionEnd sadece bir kez calisir
+    const lockAcquired = await GamesHelper.acquireQuestionEndLock(pin, questionIndex);
+    if (!lockAcquired) {
+        // Baska bir tetikleyici (timer veya all-players-answered) zaten calistirdi
+        return;
+    }
+
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
 
@@ -652,7 +701,7 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
  * PDF SPEC: Handle SHOW_LEADERBOARD event (manual trigger)
  */
 export async function handleShowLeaderboard(ws: any, data: ShowLeaderboardEvent['data']) {
-    const pin = data.gameId; // types.ts uses gameId
+    const pin = (ws.data as any)?.pin; // Use stored PIN, not data.gameId (frontend sends quiz ID)
 
     // 1. Verify sender is host
     const state = await GamesHelper.getGameState(pin);
@@ -692,20 +741,27 @@ export async function showLeaderboard(pin: string) {
         },
     }));
 
-    // To players: only top 5
-    await publish(`game:${pin}`, JSON.stringify({
-        type: 'LEADERBOARD_RESULT',
-        data: {
-            top5,
-        },
-    }));
+    // To players: send via individual channels (reliable delivery)
+    try {
+        const playerSockets = await GamesHelper.getAllPlayerSockets(pin);
+        for (const sid of playerSockets) {
+            await publish(`game:${pin}:player:${sid}`, JSON.stringify({
+                type: 'LEADERBOARD_RESULT',
+                data: {
+                    top5,
+                },
+            }));
+        }
+    } catch (err) {
+        console.error('Failed to publish individualized LEADERBOARD_RESULT', err);
+    }
 }
 
 /**
  * Handle NEXT_QUESTION event
  */
 export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data']) {
-    const pin = data.gameId; // types.ts uses gameId
+    const pin = (ws.data as any)?.pin; // Use stored PIN, not data.gameId (frontend sends quiz ID)
 
     // 1. Verify sender is host
     const state = await GamesHelper.getGameState(pin);

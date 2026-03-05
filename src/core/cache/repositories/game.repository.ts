@@ -204,6 +204,7 @@ export async function addPlayer(
 
     // Add to leaderboard with score 0
     await redis.zadd(getLeaderboardKey(pin), 0, nickname);
+    console.log(`[DEBUG] addPlayer: zadd ${getLeaderboardKey(pin)} score=0 nick=${nickname}`);
 
     // Increment total players
     await redis.hincrby(getGameStateKey(pin), 'totalPlayers', 1);
@@ -218,6 +219,7 @@ export async function removePlayer(pin: string, socketId: string): Promise<void>
 
     if (playerInfo) {
         await redis.zrem(getLeaderboardKey(pin), playerInfo.nickname);
+        console.log(`[DEBUG] removePlayer: zrem ${getLeaderboardKey(pin)} nick=${playerInfo.nickname}`);
     }
 
     // Remove from players set
@@ -323,6 +325,7 @@ export async function updatePlayerScore(
 
     // Update leaderboard
     await redis.zadd(getLeaderboardKey(pin), newScore, playerInfo.nickname);
+    console.log(`[DEBUG] updatePlayerScore: zadd ${getLeaderboardKey(pin)} score=${newScore} nick=${playerInfo.nickname}`);
 
     // Mark as answered
     await redis.hset(playerKey, 'hasAnswered', 'true', 'lastPoints', scoreToAdd.toString());
@@ -379,6 +382,7 @@ export async function getLeaderboard(
         limit - 1,
         'WITHSCORES'
     );
+    console.log(`[DEBUG] getLeaderboard: key=${getLeaderboardKey(pin)} results=`, JSON.stringify(results));
 
     const leaderboard: LeaderboardEntry[] = [];
 
@@ -529,6 +533,19 @@ export async function acquireCalculationLock(
     const lockKey = getCalculationLockKey(pin, questionId, socketId);
     // SET with NX (only if not exists) and EX (expiration in seconds)
     const result = await redis.set(lockKey, '1', 'EX', 60, 'NX');
+    return result === 'OK';
+}
+
+/**
+ * Atomik lock: showQuestionEnd ayni soru icin sadece bir kez calisir
+ * Timer ve all-players-answered ayni anda tetiklerse ikincisi engellenir
+ */
+export async function acquireQuestionEndLock(
+    pin: string,
+    questionIndex: number
+): Promise<boolean> {
+    const lockKey = `game:${pin}:question_end_lock:${questionIndex}`;
+    const result = await redis.set(lockKey, '1', 'EX', 120, 'NX');
     return result === 'OK';
 }
 
