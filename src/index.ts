@@ -15,6 +15,7 @@ import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
 import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
 import { logEvent } from "./shared/helpers/log.helper";
+import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -171,6 +172,8 @@ const app = new Elysia({
       console.log('WebSocket connected:', ws.id);
       // Add to active sockets
       activeSockets.add(ws);
+      // Track socket ID for liveness checks (synchronous — no await)
+      trackSocketOpen(ws.id);
     },
 
     async message(ws, message: any) {
@@ -224,6 +227,8 @@ const app = new Elysia({
       // Remove from active sockets so we don't publish to closed sockets
       try {
         activeSockets.delete(ws);
+        // Track socket close synchronously — no await, no race
+        trackSocketClose(socketId);
       } catch (err) {
         // ignore
       }
@@ -233,6 +238,13 @@ const app = new Elysia({
         const pin = metadata.pin;
 
         try {
+          // Check if this was the host socket — if so, clear hostSocketId so host can reconnect
+          const gameState = await GamesHelper.getGameState(pin);
+          if (gameState && gameState.hostSocketId === socketId) {
+            await GamesHelper.updateGameState(pin, { hostSocketId: '' });
+            console.log(`Host disconnected, cleared hostSocketId for pin=${pin}`);
+          }
+
           // Cleanup disconnected player
           const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
 
