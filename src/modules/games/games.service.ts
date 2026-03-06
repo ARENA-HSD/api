@@ -455,6 +455,17 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
 
     // PDF SPEC: To host (PERSONAL mode)
     const { publish } = await import('../../core/pubsub/broadcaster');
+
+    const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+    const currentState = await GamesHelper.getGameState(pin);
+    await publish(`game:${pin}:host`, JSON.stringify({
+        type: 'ANSWER_STAT_UPDATE',
+        data: {
+            answeredCount,
+            totalPlayers: currentState ? currentState.totalPlayers : 0,
+        },
+    }));
+
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_START',
         data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
@@ -578,6 +589,13 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
     try {
         const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
         const currentState = await GamesHelper.getGameState(pin);
+        ws.publish(`game:${pin}:host`, JSON.stringify({
+            type: 'ANSWER_STAT_UPDATE',
+            data: {
+                answeredCount,
+                totalPlayers: currentState ? currentState.totalPlayers : 0,
+            },
+        }));
         if (currentState && answeredCount >= currentState.totalPlayers) {
             // Automatically show QUESTION_END after all players answered
             setTimeout(() => showQuestionEnd(pin, questionIndex, question.id, question.correctIndex), 1000);
