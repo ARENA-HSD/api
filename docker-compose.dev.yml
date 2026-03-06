@@ -12,6 +12,12 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - NODE_ENV=development
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+      - TELEGRAM_WARNING_TOPIC_ID=${TELEGRAM_WARNING_TOPIC_ID}
+      - TELEGRAM_INFO_TOPIC_ID=${TELEGRAM_INFO_TOPIC_ID}
+      - TELEGRAM_ERROR_TOPIC_ID=${TELEGRAM_ERROR_TOPIC_ID}
+      - TELEGRAM_CRITICAL_TOPIC_ID=${TELEGRAM_CRITICAL_TOPIC_ID}
     volumes:
       - .:/app # Kodunu içeri yansıtır (Hot Reload için şart)
       - /app/node_modules # Konteynerin kendi modüllerini korur (ÖNEMLİ)
@@ -22,6 +28,12 @@ services:
         condition: service_healthy
     networks:
       - arena-network
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-backend-dev,env=development
+    # Loglar doğrudan lokiye gider, console'a yazmaz.
     command: [ "bun", "run", "--watch", "src/index.ts" ]
 
   # --- POSTGRES (DEV) ---
@@ -44,8 +56,14 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-postgres-dev,env=development
+    # Loglar doğrudan lokiye gider, console'a yazmaz.
 
-  # --- REDIS (DEV) ---
+    # --- REDIS (DEV) ---
   redis:
     image: redis:alpine
     container_name: arena-redis-dev
@@ -61,6 +79,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-redis-dev,env=development
+    # Loglar doğrudan lokiye gider, console'a yazmaz.
+
   pgweb:
     image: ghcr.io/sosedoff/pgweb:latest
     container_name: arena-pgweb-dev
@@ -72,9 +97,15 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
+      PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://loki:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-pgweb-dev,env=development
+    # Loglar doğrudan lokiye gider, console'a yazmaz.
 
-  # --- MONITOR (DEV) ---
+    # --- MONITOR (DEV) ---
 
   prometheus:
     image: prom/prometheus:latest
@@ -86,6 +117,11 @@ services:
       - "9090:9090"
     networks:
       - arena-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   loki:
     image: grafana/loki:latest
@@ -97,6 +133,11 @@ services:
       - ./config/loki.yml:/etc/loki/local-config.yaml
     networks:
       - arena-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   promtail:
     image: grafana/promtail:latest
@@ -107,6 +148,11 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
       - arena-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
   grafana:
     image: grafana/grafana:latest
@@ -115,13 +161,17 @@ services:
     ports:
       - "3001:3000"
     environment:
-      - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
+      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning
-      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
     networks:
       - arena-network
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 networks:
   arena-network:
