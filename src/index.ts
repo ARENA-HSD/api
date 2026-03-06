@@ -16,6 +16,7 @@ import * as GameService from './modules/games/games.service';
 import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
 import { logEvent } from "./shared/helpers/log.helper";
 import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
+import { rateLimit } from 'elysia-rate-limit';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -116,13 +117,30 @@ const app = new Elysia({
 
     },
   }))
-  .use(usersRoutes)
-  .use(loginRoutes)
-  .use(orgRoutes)
-  .use(quizzesRoutes)
-  .use(questionsRoutes)
-  .use(invitationsRoutes)
-  .use(gamesRoutes)
+  .use(
+    new Elysia()
+      .use(rateLimit({
+        duration: 60 * 1000, // 60 seconds
+        max: 5, // 5 requests per minute
+      }))
+      .use(loginRoutes)
+      .use(usersRoutes)
+      .use(quizzesRoutes)
+      .use(questionsRoutes)
+      .use(invitationsRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+      .use(rateLimit({
+        duration: 60 * 1000, // 60 seconds
+        max: 2, // 2 requests per minute
+      }))
+      .use(orgRoutes)
+      .use(gamesRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+  )
   .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
   .get("/db-health", async () => {
     const timestamp = new Date().toISOString();
