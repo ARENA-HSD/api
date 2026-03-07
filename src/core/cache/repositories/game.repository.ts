@@ -224,6 +224,8 @@ export async function removePlayer(pin: string, socketId: string): Promise<void>
     if (playerInfo) {
         await redis.zrem(getLeaderboardKey(pin), playerInfo.nickname);
         console.log(`[DEBUG] removePlayer: zrem ${getLeaderboardKey(pin)} nick=${playerInfo.nickname}`);
+        // Remove from recent players list so LOBBY_UPDATE no longer includes them
+        await redis.lrem(getRecentPlayersKey(pin), 0, playerInfo.nickname);
     }
 
     // Remove from players set

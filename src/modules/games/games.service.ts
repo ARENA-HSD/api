@@ -589,6 +589,17 @@ export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
             type: 'PLAYER_KICKED',
             data: { nickname: playerInfo.nickname },
         }));
+
+        // 8. Send LOBBY_UPDATE so host's player list no longer shows the kicked player
+        const updatedState = await GamesHelper.getGameState(pin);
+        const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: {
+                count: updatedState ? updatedState.totalPlayers : 0,
+                recentPlayers,
+            },
+        }));
     } catch (err) {
         console.error('Failed to publish PLAYER_KICKED', err);
     }
