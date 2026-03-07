@@ -14,6 +14,7 @@ export interface GameState {
     currentQuestionIndex: number;
     mode: GameMode;
     hostSocketId: string;
+    hostSessionToken: string;
     totalAnswers: number;
     quizId: string;
     totalPlayers: number;
@@ -27,6 +28,9 @@ export interface PlayerInfo {
     ip: string;
     hasAnswered: boolean;
     lastPoints?: number;
+    sessionToken?: string;
+    disconnected?: boolean;
+    disconnectedAt?: number;
 }
 
 export interface LeaderboardEntry {
@@ -81,6 +85,10 @@ export type WebSocketEventType =
     | 'LEADERBOARD_RESULT'
     | 'NEXT_QUESTION'
     | 'GAME_OVER'
+    | 'RECONNECT'
+    | 'RECONNECT_SUCCESS'
+    | 'PLAYER_DISCONNECTED'
+    | 'PLAYER_RECONNECTED'
     | 'ERROR';
 
 // Client -> Server Events
@@ -247,6 +255,46 @@ export interface ErrorEvent {
     };
 }
 
+// Client -> Server: Reconnect Event
+export interface ReconnectEvent {
+    type: 'RECONNECT';
+    data: {
+        pin: string;
+        sessionToken: string;
+    };
+}
+
+// Server -> Client: Reconnect Success
+export interface ReconnectSuccessEvent {
+    type: 'RECONNECT_SUCCESS';
+    data: {
+        nickname: string;
+        gameStatus: GameStatus;
+        currentQuestionIndex: number;
+        score: number;
+        streak: number;
+        hasAnswered: boolean;
+        totalQuestions: number;
+        isHost: boolean;
+        mode: GameMode;
+        remainingTime?: number;
+    };
+}
+
+export interface PlayerDisconnectedEvent {
+    type: 'PLAYER_DISCONNECTED';
+    data: {
+        nickname: string;
+    };
+}
+
+export interface PlayerReconnectedEvent {
+    type: 'PLAYER_RECONNECTED';
+    data: {
+        nickname: string;
+    };
+}
+
 // Union type for all events
 export type WebSocketEvent =
     | JoinRoomEvent
@@ -255,6 +303,7 @@ export type WebSocketEvent =
     | SubmitAnswerEvent
     | ShowLeaderboardEvent
     | NextQuestionEvent
+    | ReconnectEvent
     | JoinSuccessEvent
     | LobbyUpdateEvent
     | PlayerJoinedEvent
@@ -266,6 +315,9 @@ export type WebSocketEvent =
     | QuestionEndPlayerEvent
     | LeaderboardResultHostEvent
     | LeaderboardResultPlayerEvent
+    | ReconnectSuccessEvent
+    | PlayerDisconnectedEvent
+    | PlayerReconnectedEvent
     | GameOverEvent
     | ErrorEvent;
 

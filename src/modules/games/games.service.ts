@@ -18,11 +18,16 @@ import type {
     SubmitAnswerEvent,
     ShowLeaderboardEvent,
     NextQuestionEvent,
+    ReconnectEvent,
 } from './games.types';
 
 
 // Local in-memory timers for question end scheduling per game pin
 const questionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Grace period timers: keyed by "pin:sessionToken" — if player doesn't reconnect within GRACE_PERIOD_MS, remove them
+const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const GRACE_PERIOD_MS = parseInt(process.env.RECONNECT_GRACE_PERIOD_MS || '30000', 10); // 30 seconds default
 
 function clearLocalQuestionTimer(pin: string) {
     const t = questionTimers.get(pin);
@@ -228,10 +233,9 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
 
     // Guard: If this socket is already the host, don't re-process
     if (updatedState && updatedState.hostSocketId === ws.id) {
-        // Host already assigned to this socket, just re-send JOIN_SUCCESS
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
-            data: { status: 'WAITING', myNick: nickname },
+            data: { status: 'WAITING', myNick: nickname, sessionToken: updatedState.hostSessionToken || undefined },
         }));
         (ws.data as any).pin = pin;
         (ws.data as any).socketId = ws.id;
@@ -243,7 +247,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     if (existingPlayerInfo) {
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
-            data: { status: 'WAITING', myNick: existingPlayerInfo.nickname },
+            data: { status: 'WAITING', myNick: existingPlayerInfo.nickname, sessionToken: existingPlayerInfo.sessionToken || undefined },
         }));
         (ws.data as any).pin = pin;
         (ws.data as any).socketId = ws.id;
@@ -253,13 +257,15 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     // Host reconnection: hostSocketId is set but old socket is dead (page navigation)
     if (updatedState && updatedState.hostSocketId) {
         if (!isSocketAlive(updatedState.hostSocketId)) {
-            // Old host socket is dead → this is a host reconnection
-            console.log(`Host reconnected: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
-            await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
+            console.log(`Host reconnected via JOIN_ROOM: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
+            // Generate new sessionToken for host if they don't have one
+            const hostSessionToken = updatedState.hostSessionToken || crypto.randomUUID();
+            await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
+            await GamesHelper.createSession(pin, ws.id, hostSessionToken);
             ws.subscribe(`game:${pin}:host`);
             ws.send(JSON.stringify({
                 type: 'JOIN_SUCCESS',
-                data: { status: 'WAITING', myNick: nickname },
+                data: { status: 'WAITING', myNick: nickname, sessionToken: hostSessionToken },
             }));
             (ws.data as any).pin = pin;
             (ws.data as any).socketId = ws.id;
@@ -269,41 +275,42 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
 
     // If no host assigned yet, set this socket as host and subscribe to host channel
     if (updatedState && !updatedState.hostSocketId) {
-        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
+        const hostSessionToken = crypto.randomUUID();
+        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
+        await GamesHelper.createSession(pin, ws.id, hostSessionToken);
         ws.subscribe(`game:${pin}:host`);
+
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
+        }));
     } else {
         // 4. Add player to game
         await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
+
+        // Generate sessionToken for player
+        const playerSessionToken = crypto.randomUUID();
+        await GamesHelper.createSession(pin, ws.id, playerSessionToken);
+        // Store sessionToken in player info hash
+        const playerInfoKey = `game:${pin}:player:${ws.id}`;
+        await GamesHelper.redis.hset(playerInfoKey, 'sessionToken', playerSessionToken);
 
         // PDF SPEC: Add to recent players list (LTRIM to 28)
         await GamesHelper.addRecentPlayer(pin, uniqueNickname);
         // 5. Subscribe to game room
         ws.subscribe(`game:${pin}`);
-        // Subscribe this socket to a personal channel so server can send individualized messages
         ws.subscribe(`game:${pin}:player:${ws.id}`);
-    }
 
-    // 6. Notify player of successful join
-    ws.send(JSON.stringify({
-        type: 'JOIN_SUCCESS',
-        data: {
-            status: 'WAITING',
-            myNick: uniqueNickname,
-        },
-    }));
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: playerSessionToken },
+        }));
+    }
 
     // 7. Notify all players in room (PLAYER_JOINED)
     try {
 
         const { publish } = await import('../../core/pubsub/broadcaster');
-        /*
-        await publish(`game:${pin}:host`, JSON.stringify({
-            type: 'PLAYER_JOINED',
-            data: {
-                nickname: uniqueNickname,
-                playerCount: updatedState ? updatedState.totalPlayers : 0,
-            },
-        }));*/
 
         // Also broadcast LOBBY_UPDATE after join so clients refresh lobby immediately
         const players = await GamesHelper.getAllPlayerSockets(pin);
@@ -333,6 +340,196 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
     (ws.data as any).pin = pin;
     (ws.data as any).socketId = ws.id;
 }
+
+
+/**
+ * Handle RECONNECT event — restores player/host session after connection drop
+ */
+export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
+    const { pin, sessionToken } = data;
+
+    // 1. Validate game exists
+    const state = await GamesHelper.getGameState(pin);
+    if (!state) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Game not found' } }));
+        return;
+    }
+
+    // 2. Look up old socketId from session token
+    const oldSocketId = await GamesHelper.getSocketBySession(pin, sessionToken);
+    if (!oldSocketId) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Session expired or invalid' } }));
+        return;
+    }
+
+    const newSocketId = ws.id;
+    const isHost = state.hostSessionToken === sessionToken;
+
+    // 3. Cancel grace period timer if active
+    const timerKey = `${pin}:${sessionToken}`;
+    const existingTimer = disconnectTimers.get(timerKey);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+        disconnectTimers.delete(timerKey);
+    }
+
+    // 4. Get player info from old socket (before migration)
+    const playerInfo = await GamesHelper.getPlayerInfo(pin, oldSocketId);
+
+    if (isHost) {
+        // HOST RECONNECT
+        await GamesHelper.updateGameState(pin, { hostSocketId: newSocketId });
+        await GamesHelper.updateSessionSocket(pin, sessionToken, oldSocketId, newSocketId);
+
+        // If host was also a player (shouldn't be, but defensive)
+        if (playerInfo) {
+            await GamesHelper.migratePlayerSocket(pin, oldSocketId, newSocketId, state.totalQuestions, state.quizId);
+            await GamesHelper.markPlayerReconnected(pin, newSocketId);
+        }
+
+        // Re-subscribe to host channel
+        ws.subscribe(`game:${pin}:host`);
+
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = newSocketId;
+
+        console.log(`Host reconnected: session=${sessionToken} old=${oldSocketId} new=${newSocketId} pin=${pin}`);
+        logEvent({ event: 'game.host.reconnected', level: 'INFO', source: 'code', data: { pin, sessionToken, oldSocketId, newSocketId } });
+
+        ws.send(JSON.stringify({
+            type: 'RECONNECT_SUCCESS',
+            data: {
+                nickname: 'HOST',
+                gameStatus: state.status,
+                currentQuestionIndex: state.currentQuestionIndex,
+                score: 0,
+                streak: 0,
+                hasAnswered: false,
+                totalQuestions: state.totalQuestions,
+                isHost: true,
+                mode: state.mode,
+            },
+        }));
+        return;
+    }
+
+    // PLAYER RECONNECT
+    if (!playerInfo) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Player session not found' } }));
+        return;
+    }
+
+    // 5. Migrate player data from old socket to new socket
+    if (oldSocketId !== newSocketId) {
+        await GamesHelper.migratePlayerSocket(pin, oldSocketId, newSocketId, state.totalQuestions, state.quizId);
+        await GamesHelper.updateSessionSocket(pin, sessionToken, oldSocketId, newSocketId);
+    }
+
+    // 6. Mark player as reconnected
+    await GamesHelper.markPlayerReconnected(pin, newSocketId);
+
+    // 7. Re-subscribe to channels
+    ws.subscribe(`game:${pin}`);
+    ws.subscribe(`game:${pin}:player:${newSocketId}`);
+
+    (ws.data as any).pin = pin;
+    (ws.data as any).socketId = newSocketId;
+
+    // 8. Calculate remaining time if a question is active
+    let remainingTime: number | undefined;
+    if (state.status === 'ACTIVE') {
+        const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
+        if (questionStartTime) {
+            const quiz = await db.query.quizzes.findFirst({
+                where: eq(schema.quizzes.id, state.quizId),
+                with: {
+                    questions: {
+                        orderBy: (questions, { asc }) => [asc(questions.orderIndex)],
+                    },
+                },
+            });
+            if (quiz && quiz.questions[state.currentQuestionIndex]) {
+                const timeLimit = quiz.questions[state.currentQuestionIndex].timeLimit;
+                const elapsed = (Date.now() - questionStartTime) / 1000;
+                remainingTime = Math.max(0, timeLimit - elapsed);
+            }
+        }
+    }
+
+    console.log(`Player reconnected: ${playerInfo.nickname} session=${sessionToken} old=${oldSocketId} new=${newSocketId} pin=${pin}`);
+    logEvent({ event: 'game.player.reconnected', level: 'INFO', source: 'code', data: { pin, nickname: playerInfo.nickname, sessionToken, oldSocketId, newSocketId } });
+
+    // 9. Send RECONNECT_SUCCESS with current game state
+    ws.send(JSON.stringify({
+        type: 'RECONNECT_SUCCESS',
+        data: {
+            nickname: playerInfo.nickname,
+            gameStatus: state.status,
+            currentQuestionIndex: state.currentQuestionIndex,
+            score: playerInfo.score,
+            streak: playerInfo.streak,
+            hasAnswered: playerInfo.hasAnswered,
+            totalQuestions: state.totalQuestions,
+            isHost: false,
+            mode: state.mode,
+            remainingTime,
+        },
+    }));
+
+    // 10. Notify host of player reconnection
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'PLAYER_RECONNECTED',
+            data: { nickname: playerInfo.nickname },
+        }));
+    } catch (err) {
+        console.error('Failed to publish PLAYER_RECONNECTED', err);
+    }
+}
+
+/**
+ * Starts a grace period timer for a disconnected player.
+ * If the player doesn't reconnect within GRACE_PERIOD_MS, they are fully removed.
+ */
+export function startDisconnectGracePeriod(pin: string, socketId: string, sessionToken: string) {
+    const timerKey = `${pin}:${sessionToken}`;
+
+    // Clear any existing timer for this session
+    const existing = disconnectTimers.get(timerKey);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+        disconnectTimers.delete(timerKey);
+        try {
+            // Check if player is still disconnected (they may have reconnected with same old socketId somehow)
+            const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
+            if (playerInfo && playerInfo.disconnected) {
+                console.log(`Grace period expired for ${playerInfo.nickname} in game ${pin}, removing player`);
+                logEvent({ event: 'game.player.grace_expired', level: 'INFO', source: 'code', data: { pin, nickname: playerInfo.nickname, sessionToken } });
+
+                await GamesHelper.removePlayer(pin, socketId);
+                await GamesHelper.removeSession(pin, sessionToken, socketId);
+
+                // Broadcast updated player count if LOBBY
+                const state = await GamesHelper.getGameState(pin);
+                if (state && state.status === 'LOBBY') {
+                    const { publish } = await import('../../core/pubsub/broadcaster');
+                    const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+                    await publish(`game:${pin}:host`, JSON.stringify({
+                        type: 'LOBBY_UPDATE',
+                        data: { count: state.totalPlayers - 1, recentPlayers },
+                    }));
+                }
+            }
+        } catch (err) {
+            console.error('Grace period cleanup error:', err);
+        }
+    }, GRACE_PERIOD_MS);
+
+    disconnectTimers.set(timerKey, timer);
+}
+
 
 /**
  * Handle KICK_PLAYER event
