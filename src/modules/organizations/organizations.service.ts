@@ -145,6 +145,12 @@ export async function updateOrganization(
         throw new Error("Only Super Admin or Admin can update branding");
     }
 
+    // Check if subdomain includes words that are not allowed (e.g. "www", "admin", "support")
+    const forbiddenSubdomains = ["www", "admin", "support", "api", "mail", "ftp", "dashboard", "app", "blog", "shop", "help", "status", "dev", "test", "staging", "beta", "alpha", "demo", "portal", "secure", "server", "static", "cdn", "sys", "system", "root", "manager", "manage", "administrator", "moderator", "mod", "owner", "team", "teams", "users", "user", "member", "members", "account", "accounts", "billing", "finance", "pay", "payment", "invoices", "invoice", "subscribe", "subscription", "subscriptions", "auth", "login", "signin", "signup", "register", "oauth", "sso", "support", "helpdesk", "contact", "contacts", "feedback", "forum", "forums", "community", "communities", "news", "press", "media", "legal", "privacy", "terms", "conditions", "policy", "policies", "about", "team", "careers", "jobs", "blog", "blogs", "events", "event", "webinar", "webinars", "docs", "documentation", "apis", "v1", "v2", "v3", "v4", "v5"];
+    if (data.subdomain && forbiddenSubdomains.includes(data.subdomain.toLowerCase())) {
+        throw new Error("Subdomain is not allowed");
+    }
+
     // If subdomain is being changed, check if new subdomain is available
     if (data.subdomain && data.subdomain !== subdomain) {
         const [existing] = await db
