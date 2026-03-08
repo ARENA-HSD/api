@@ -16,6 +16,7 @@ import * as GameService from './modules/games/games.service';
 import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
 import { logEvent } from "./shared/helpers/log.helper";
 import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
+import { rateLimit } from 'elysia-rate-limit';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -116,13 +117,26 @@ const app = new Elysia({
 
     },
   }))
-  .use(usersRoutes)
-  .use(loginRoutes)
-  .use(orgRoutes)
-  .use(quizzesRoutes)
-  .use(questionsRoutes)
-  .use(invitationsRoutes)
-  .use(gamesRoutes)
+  .use(
+    new Elysia()
+      .use(loginRoutes)
+      .use(usersRoutes)
+      .use(quizzesRoutes)
+      .use(questionsRoutes)
+      .use(invitationsRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+      .use(rateLimit({
+        duration: 60 * 1000, // 60 seconds
+        max: 50, // 50 requests per minute
+      }))
+      .use(orgRoutes)
+      .use(gamesRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+  )
   .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
   .get("/db-health", async () => {
     const timestamp = new Date().toISOString();
@@ -186,6 +200,9 @@ const app = new Elysia({
           case 'JOIN_ROOM':
             await GameService.handleJoinRoom(ws, data);
             break;
+          case 'RECONNECT':
+            await GameService.handleReconnect(ws, data);
+            break;
           case 'KICK_PLAYER':
             await GameService.handleKickPlayer(ws, data);
             break;
@@ -238,36 +255,61 @@ const app = new Elysia({
         const pin = metadata.pin;
 
         try {
-          // Check if this was the host socket — if so, clear hostSocketId so host can reconnect
           const gameState = await GamesHelper.getGameState(pin);
-          if (gameState && gameState.hostSocketId === socketId) {
+          if (!gameState) return;
+
+          const isHost = gameState.hostSocketId === socketId;
+          const sessionToken = isHost
+            ? gameState.hostSessionToken
+            : await GamesHelper.getSessionBySocket(pin, socketId);
+
+          if (isHost) {
+            // Clear hostSocketId so host can reconnect via RECONNECT or JOIN_ROOM
             await GamesHelper.updateGameState(pin, { hostSocketId: '' });
             console.log(`Host disconnected, cleared hostSocketId for pin=${pin}`);
+
+            // Start grace period for host (don't wipe hostSessionToken yet)
+            if (sessionToken) {
+              GameService.startDisconnectGracePeriod(pin, socketId, sessionToken);
+            }
+            return;
           }
 
-          // Cleanup disconnected player
-          const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+          // PLAYER disconnect
+          const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
+          if (!playerInfo) return;
 
-          if (result.success && result.shouldBroadcast && result.state) {
-            // Broadcast based on game status
-            if (result.state.status === 'LOBBY') {
-              // LOBBY: Update player list
-              const players = await GamesHelper.getAllPlayerSockets(pin);
-              const playerList: { socketId: string; nickname: string }[] = [];
-              for (const sid of players) {
-                const info = await GamesHelper.getPlayerInfo(pin, sid);
-                if (info) {
-                  playerList.push({ socketId: sid, nickname: info.nickname });
-                }
-              }
+          if (gameState.status === 'ACTIVE' && sessionToken) {
+            // ACTIVE game: don't remove player — mark as disconnected, start grace period
+            await GamesHelper.markPlayerDisconnected(pin, socketId);
+            GameService.startDisconnectGracePeriod(pin, socketId, sessionToken);
 
+            console.log(`Player disconnected during active game ${pin}: ${playerInfo.nickname} (grace period started)`);
+            logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: playerInfo.nickname } });
+
+            // Notify host
+            try {
+              const { publish } = await import('./core/pubsub/broadcaster');
+              await publish(`game:${pin}:host`, JSON.stringify({
+                type: 'PLAYER_DISCONNECTED',
+                data: { nickname: playerInfo.nickname },
+              }));
+            } catch (err) {
+              console.error('Failed to publish PLAYER_DISCONNECTED', err);
+            }
+          } else {
+            // LOBBY or FINISHED or no session: immediate cleanup
+            const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+            if (sessionToken) {
+              await GamesHelper.removeSession(pin, sessionToken, socketId);
+            }
+
+            if (result.success && result.shouldBroadcast && result.state?.status === 'LOBBY') {
               const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
-
-              // Broadcast LOBBY_UPDATE
               try {
                 const { publish } = await import('./core/pubsub/broadcaster');
                 const updatedState = await GamesHelper.getGameState(pin);
-                await publish(`game:${pin}`, JSON.stringify({
+                await publish(`game:${pin}:host`, JSON.stringify({
                   type: 'LOBBY_UPDATE',
                   data: {
                     count: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1),
@@ -276,12 +318,7 @@ const app = new Elysia({
                 }));
               } catch (err) {
                 console.error('Failed to publish LOBBY_UPDATE on disconnect', err);
-                logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_disconnect' } });
               }
-            } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
-              // ACTIVE: Log player disconnect during game
-              console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
-              logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: result.playerInfo.nickname } });
             }
           }
         } catch (error) {
@@ -291,7 +328,7 @@ const app = new Elysia({
     },
   })
   .use(cors({
-    origin: [/^https?:\/\/(.*?\.)?localhost:\d+$/],
+    origin: [/^https?:\/\/(.*?\.)?localhost:\d+$/, "https://efe.efehidir.tr"],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
     credentials: true
