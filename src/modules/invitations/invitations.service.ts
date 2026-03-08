@@ -206,6 +206,39 @@ export async function getInvitationsByOrg(
     return { success: true, data: { invitations } };
 }
 
+//  GET MY INVITATIONS (user-scoped, with org names)
+
+export async function getMyInvitations(userId: string): Promise<InvitationResult> {
+    const results = await db
+        .select({
+            id: schema.invitations.id,
+            orgId: schema.invitations.orgId,
+            orgName: schema.organizations.name,
+            orgSubdomain: schema.organizations.subdomain,
+            inviterUsername: schema.users.username,
+            status: schema.invitations.status,
+            createdAt: schema.invitations.createdAt,
+        })
+        .from(schema.invitations)
+        .innerJoin(schema.organizations, eq(schema.invitations.orgId, schema.organizations.id))
+        .innerJoin(schema.users, eq(schema.invitations.inviterId, schema.users.id))
+        .where(
+            and(
+                eq(schema.invitations.inviteeId, userId),
+                eq(schema.invitations.status, 'PENDING')
+            )
+        );
+
+    // Filter out expired invitations (3 days)
+    const validInvitations = results.filter(inv => {
+        const expiry = new Date(inv.createdAt);
+        expiry.setDate(expiry.getDate() + INVITATION_EXPIRY_DAYS);
+        return new Date() <= expiry;
+    });
+
+    return { success: true, data: { invitations: validInvitations } };
+}
+
 // 3 gunu gecen PENDING davetleri siler (cron ile cagirilir)
 export async function cleanupExpiredInvitations(): Promise<number> {
     const expiryDate = new Date();

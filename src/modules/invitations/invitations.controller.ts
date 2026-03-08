@@ -71,61 +71,6 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
     }
   )
 
-  //  PATCH  — Accept/Reject ─
-  .patch(
-    "/:invitationId",
-    async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
-      // 1. Auth
-      const auth = await requireAuth(jwt, bearerToken, cookie, set);
-      if (!auth) return { success: false, message: "Unauthorized" };
-
-      // 2. Validate status value
-      if (body.status !== "ACCEPTED" && body.status !== "REJECTED") {
-        set.status = 400;
-        return { success: false, message: "Status must be ACCEPTED or REJECTED" };
-      }
-
-      // 3. Respond to invitation
-      try {
-        const result = await invitationService.respondToInvitation(
-          params.invitationId,
-          auth.sub,
-          body.status
-        );
-
-        if (!result.success) {
-          set.status = result.status;
-          return { success: false, message: result.message };
-        }
-
-        return { success: true, data: result.data };
-      } catch (error) {
-        set.status = 500;
-        return { success: false, message: "Failed to update invitation" };
-      }
-    },
-    {
-      params: t.Object({
-        orgDomain: t.String(),
-        invitationId: t.String({ format: "uuid" }),
-      }),
-      body: t.Object({
-        status: t.String(),
-      }),
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Any()),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: "Accept or reject an invitation",
-        description: "The invited user can accept (becomes MANAGER) or reject the invitation.",
-        tags: ["Invitation Operations"],
-        security: [{ BearerAuth: [] }],
-      },
-    }
-  )
-
   //  DELETE  — Cancel ─
   .delete(
     "/:invitationId",
