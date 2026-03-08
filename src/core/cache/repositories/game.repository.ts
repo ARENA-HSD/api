@@ -794,7 +794,7 @@ export async function waitForCalculationLock(pin: string, questionId: string, ti
 // SESSION TOKEN OPERATIONS (RECONNECT SYSTEM)
 
 
-const SESSION_TTL = 300; // 5 minutes
+const SESSION_TTL = 3000; // 50 minutes
 
 /**
  * Creates a session mapping: sessionToken <-> socketId
