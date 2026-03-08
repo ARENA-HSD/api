@@ -17,6 +17,7 @@ import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/m
 import { logEvent } from "./shared/helpers/log.helper";
 import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
 import { rateLimit } from 'elysia-rate-limit';
+import { handleSetNickname } from './modules/games/games.service';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -199,6 +200,9 @@ const app = new Elysia({
         switch (type) {
           case 'JOIN_ROOM':
             await GameService.handleJoinRoom(ws, data);
+            break;
+          case 'SET_NICKNAME':
+            await handleSetNickname(ws, data);
             break;
           case 'RECONNECT':
             await GameService.handleReconnect(ws, data);

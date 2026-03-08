@@ -70,6 +70,8 @@ export interface GameSummaryResponse {
 
 export type WebSocketEventType =
     | 'JOIN_ROOM'
+    | 'SET_NICKNAME'
+    | 'NEED_NICKNAME'
     | 'JOIN_SUCCESS'
     | 'LOBBY_UPDATE'
     | 'KICK_PLAYER'
@@ -94,6 +96,16 @@ export type WebSocketEventType =
 // Client -> Server Events
 export interface JoinRoomEvent {
     type: 'JOIN_ROOM';
+    data: {
+        pin: string;
+        // If provided and valid, the server auto-reconnects the player.
+        // If missing or invalid, the server responds with NEED_NICKNAME.
+        sessionToken?: string;
+    };
+}
+
+export interface SetNicknameEvent {
+    type: 'SET_NICKNAME';
     data: {
         pin: string;
         nickname: string;
@@ -255,6 +267,14 @@ export interface ErrorEvent {
     };
 }
 
+// Server -> Client: Prompts the client to ask the user for a nickname
+export interface NeedNicknameEvent {
+    type: 'NEED_NICKNAME';
+    data: {
+        message: string;
+    };
+}
+
 // Client -> Server: Reconnect Event
 export interface ReconnectEvent {
     type: 'RECONNECT';
@@ -298,6 +318,8 @@ export interface PlayerReconnectedEvent {
 // Union type for all events
 export type WebSocketEvent =
     | JoinRoomEvent
+    | SetNicknameEvent
+    | NeedNicknameEvent
     | KickPlayerEvent
     | StartGameEvent
     | SubmitAnswerEvent

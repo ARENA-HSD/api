@@ -19,6 +19,7 @@ import type {
     ShowLeaderboardEvent,
     NextQuestionEvent,
     ReconnectEvent,
+    SetNicknameEvent,
 } from './games.types';
 
 
@@ -27,7 +28,7 @@ const questionTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 // Grace period timers: keyed by "pin:sessionToken" — if player doesn't reconnect within GRACE_PERIOD_MS, remove them
 const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
-const GRACE_PERIOD_MS = parseInt(process.env.RECONNECT_GRACE_PERIOD_MS || '30000', 10); // 30 seconds default
+const GRACE_PERIOD_MS = parseInt(process.env.RECONNECT_GRACE_PERIOD_MS || '60000', 10); // 60 seconds default
 
 function clearLocalQuestionTimer(pin: string) {
     const t = questionTimers.get(pin);
@@ -197,10 +198,14 @@ export async function createGame(
 
 
 /**
- * PDF SPEC: Handle JOIN_ROOM event
+ * Phase 1 of join flow.
+ * Client sends { pin, sessionToken? }.
+ * - Valid sessionToken  → auto-reconnect (delegates to handleReconnect).
+ * - Missing/invalid     → game must be in LOBBY; server replies NEED_NICKNAME
+ *                         and waits for a SET_NICKNAME event to complete the join.
  */
 export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
-    const { pin, nickname } = data;
+    const { pin, sessionToken } = data;
     const ip = GamesHelper.getClientIP(ws.raw?.headers || {});
 
     // 1. Check if game exists
@@ -224,15 +229,86 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         return;
     }
 
+    // 3. If sessionToken provided, attempt auto-reconnect
+    if (sessionToken) {
+        const oldSocketId = await GamesHelper.getSocketBySession(pin, sessionToken);
+        const isHostSession = state.hostSessionToken === sessionToken;
+
+        if (oldSocketId || isHostSession) {
+            // Valid session — delegate entirely to reconnect logic
+            await handleReconnect(ws, { pin, sessionToken });
+            return;
+        }
+
+        // Session not found / expired — fall through and ask for nickname
+        logEvent({ event: 'game.join.session_not_found', level: 'INFO', source: 'code', data: { pin, socketId: ws.id } });
+    }
+
+    // 4. New joins are only allowed while the game is in the LOBBY
+    if (state.status !== 'LOBBY') {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Game is already in progress' },
+        }));
+        return;
+    }
+
+    // 5. Ask the client to supply a nickname (phase 2)
+    (ws.data as any).pendingPin = pin;
+    ws.send(JSON.stringify({
+        type: 'NEED_NICKNAME',
+        data: { message: 'Please provide a nickname to join the game' },
+    }));
+    logEvent({ event: 'game.join.need_nickname', level: 'INFO', source: 'code', data: { pin, socketId: ws.id } });
+}
+
+
+/**
+ * Phase 2 of join flow.
+ * Client sends { pin, nickname } after receiving NEED_NICKNAME.
+ * Completes the join — assigns host role or adds as player.
+ */
+export async function handleSetNickname(ws: any, data: SetNicknameEvent['data']) {
+    const { pin, nickname } = data;
+
+    // Validate that this socket has a pending join for this pin
+    if ((ws.data as any).pendingPin !== pin) {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'No pending join for this game. Send JOIN_ROOM first.' },
+        }));
+        return;
+    }
+
+    const ip = GamesHelper.getClientIP(ws.raw?.headers || {});
+
+    // 1. Re-check game state (may have changed since JOIN_ROOM)
+    const state = await GamesHelper.getGameState(pin);
+    if (!state) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Game not found' } }));
+        return;
+    }
+
+    if (state.status !== 'LOBBY') {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Game is no longer accepting new players' },
+        }));
+        return;
+    }
+
+    // 2. Clear pending state
+    delete (ws.data as any).pendingPin;
+
     // 3. Handle nickname duplication (PDF spec: add #1, #2, etc.)
     const existingNicknames = await GamesHelper.getAllNicknames(pin);
     const uniqueNickname = GamesHelper.handleNicknameDuplication(nickname, existingNicknames);
 
-    // Refresh state after adding player
     const updatedState = await GamesHelper.getGameState(pin);
+    if (!updatedState) return;
 
-    // Guard: If this socket is already the host, don't re-process
-    if (updatedState && updatedState.hostSocketId === ws.id) {
+    // Guard: this socket is already registered as the host
+    if (updatedState.hostSocketId === ws.id) {
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
             data: { status: 'WAITING', myNick: nickname, sessionToken: updatedState.hostSessionToken || undefined },
@@ -242,7 +318,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         return;
     }
 
-    // Guard: If this socket is already a registered player, don't add again
+    // Guard: this socket is already registered as a player
     const existingPlayerInfo = await GamesHelper.getPlayerInfo(pin, ws.id);
     if (existingPlayerInfo) {
         ws.send(JSON.stringify({
@@ -254,50 +330,45 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         return;
     }
 
-    // Host reconnection: hostSocketId is set but old socket is dead (page navigation)
-    if (updatedState && updatedState.hostSocketId) {
-        if (!isSocketAlive(updatedState.hostSocketId)) {
-            console.log(`Host reconnected via JOIN_ROOM: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
-            // Generate new sessionToken for host if they don't have one
-            const hostSessionToken = updatedState.hostSessionToken || crypto.randomUUID();
-            await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
-            await GamesHelper.createSession(pin, ws.id, hostSessionToken);
-            ws.subscribe(`game:${pin}:host`);
-            ws.send(JSON.stringify({
-                type: 'JOIN_SUCCESS',
-                data: { status: 'WAITING', myNick: nickname, sessionToken: hostSessionToken },
-            }));
-            (ws.data as any).pin = pin;
-            (ws.data as any).socketId = ws.id;
-            return;
-        }
+    // Host reconnection: hostSocketId is populated but that socket is dead (e.g. page refresh without a valid session)
+    if (updatedState.hostSocketId && !isSocketAlive(updatedState.hostSocketId)) {
+        console.log(`Host reclaimed via SET_NICKNAME: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
+        const hostSessionToken = updatedState.hostSessionToken || crypto.randomUUID();
+        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
+        await GamesHelper.createSession(pin, ws.id, hostSessionToken);
+        ws.subscribe(`game:${pin}:host`);
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
     }
 
-    // If no host assigned yet, set this socket as host and subscribe to host channel
-    if (updatedState && !updatedState.hostSocketId) {
+    // No host assigned yet — first to complete the flow becomes the host
+    if (!updatedState.hostSocketId) {
         const hostSessionToken = crypto.randomUUID();
         await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
         await GamesHelper.createSession(pin, ws.id, hostSessionToken);
         ws.subscribe(`game:${pin}:host`);
-
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
             data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
         }));
     } else {
-        // 4. Add player to game
+        // Add as a regular player
         await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
 
-        // Generate sessionToken for player
         const playerSessionToken = crypto.randomUUID();
         await GamesHelper.createSession(pin, ws.id, playerSessionToken);
-        // Store sessionToken in player info hash
+        // Store sessionToken inside the player info hash for later retrieval
         const playerInfoKey = `game:${pin}:player:${ws.id}`;
         await GamesHelper.redis.hset(playerInfoKey, 'sessionToken', playerSessionToken);
 
         // PDF SPEC: Add to recent players list (LTRIM to 28)
         await GamesHelper.addRecentPlayer(pin, uniqueNickname);
-        // 5. Subscribe to game room
+
         ws.subscribe(`game:${pin}`);
         ws.subscribe(`game:${pin}:player:${ws.id}`);
 
@@ -307,36 +378,20 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         }));
     }
 
-    // 7. Notify all players in room (PLAYER_JOINED)
+    // Broadcast lobby update to host
     try {
-
         const { publish } = await import('../../core/pubsub/broadcaster');
-
-        // Also broadcast LOBBY_UPDATE after join so clients refresh lobby immediately
         const players = await GamesHelper.getAllPlayerSockets(pin);
-        const playerList: { socketId: string; nickname: string }[] = [];
-        for (const sid of players) {
-            const info = await GamesHelper.getPlayerInfo(pin, sid);
-            if (info) {
-                playerList.push({ socketId: sid, nickname: info.nickname });
-            }
-        }
-
         const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
-
         await publish(`game:${pin}:host`, JSON.stringify({
             type: 'LOBBY_UPDATE',
-            data: {
-                count: playerList.length,
-                recentPlayers
-            }
+            data: { count: players.length, recentPlayers },
         }));
     } catch (err) {
         console.error('Failed to broadcast lobby update on join', err);
-        logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_join' } });
+        logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_set_nickname' } });
     }
 
-    // Store pin in ws.data for cleanup
     (ws.data as any).pin = pin;
     (ws.data as any).socketId = ws.id;
 }
