@@ -32,7 +32,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           message: "Organization created successfully",
         };
       } catch (error) {
-        if (error instanceof Error && error.message === "Subdomain already exists") {
+        if (error instanceof Error && error.message.includes("Subdomain")) {
           set.status = 409;
           return { success: false, message: error.message };
         }

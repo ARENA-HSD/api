@@ -26,6 +26,24 @@ export async function createOrganization(
     data: CreateOrganizationData,
     ownerId: string
 ) {
+
+    // Check if user is already owner of an organization (optional, can own multiple orgs but maybe we want to limit to 2 or something)
+    const existingOrg = await db
+        .select()
+        .from(schema.organizations)
+        .where(eq(schema.organizations.ownerId, ownerId))
+        .limit(1);
+
+    if (existingOrg.length >= 3) { // Limit to 3 organizations per user
+        throw new Error("You have reached the maximum number of organizations you can own");
+    }
+
+    // Check if subdomain includes words that are not allowed (e.g. "www", "admin", "support")
+    const forbiddenSubdomains = ["www", "admin", "support", "api", "mail", "ftp", "dashboard", "app", "blog", "shop", "help", "status", "dev", "test", "staging", "beta", "alpha", "demo", "portal", "secure", "server", "static", "cdn", "sys", "system", "root", "manager", "manage", "administrator", "moderator", "mod", "owner", "team", "teams", "users", "user", "member", "members", "account", "accounts", "billing", "finance", "pay", "payment", "invoices", "invoice", "subscribe", "subscription", "subscriptions", "auth", "login", "signin", "signup", "register", "oauth", "sso", "support", "helpdesk", "contact", "contacts", "feedback", "forum", "forums", "community", "communities", "news", "press", "media", "legal", "privacy", "terms", "conditions", "policy", "policies", "about", "team", "careers", "jobs", "blog", "blogs", "events", "event", "webinar", "webinars", "docs", "documentation", "apis", "v1", "v2", "v3", "v4", "v5"];
+    if (forbiddenSubdomains.includes(data.subdomain.toLowerCase())) {
+        throw new Error("Subdomain is not allowed");
+    }
+
     // Check if subdomain already exists
     const [existing] = await db
         .select()
