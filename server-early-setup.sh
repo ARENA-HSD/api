@@ -36,6 +36,7 @@ done
 
 sed -i 's/^#*Port .*/Port 17943/' /etc/ssh/sshd_config
 sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+sed -i 's/^#*PasswordAuthentication .*/PasswordAuthentication no/' /etc/ssh/sshd_config
 
 ufw allow 17943
 ufw default deny incoming
