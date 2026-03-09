@@ -332,7 +332,11 @@ const app = new Elysia({
     },
   })
   .use(cors({
-    origin: [/^https?:\/\/(.*?\.)?localhost:\d+$/, "https://efe.efehidir.tr"],
+    origin: [
+      /^https?:\/\/(.*?\.)?localhost:\d+$/,
+      "https://quizstrike.com.tr",
+      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
+    ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
     credentials: true
