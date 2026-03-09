@@ -32,13 +32,15 @@ RUN bun build \
 
 # --- 3. Aşama: Final (Release) ---
 # Google'ın distroless imajını kullanarak ultra güvenli ve küçük boyutlu bir imaj oluşturuyoruz
-FROM gcr.io/distroless/base-debian12
+FROM oven/bun:1-slim
+
 WORKDIR /app
 
-# Sadece derlenmiş "server" dosyasını alıyoruz
-COPY --from=prerelease /app/server server
+# 2. Önceki aşamadan derlenmiş dosyaları kopyala (bu sayede package.json ve src klasörü de gelir)
+COPY --from=prerelease /app /app
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
+# 3. Konteynerin içinde artık 'sh' olduğu için bu komut sorunsuz çalışacaktır
 CMD ["sh", "-c", "bun run db:push && ./server"]
