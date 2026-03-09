@@ -34,8 +34,13 @@ for ip_range in "${cloudflare_ip_range[@]}"; do
     ufw allow from $ip_range to any port 443
 done
 
-ufw allow 22
+sed -i 's/^#*Port .*/Port 17943/' /etc/ssh/sshd_config
+sed -i 's/^#*PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+
+ufw allow 17943
 ufw default deny incoming
 ufw default allow outgoing
 ufw enable
 
+systemctl daemon-reload
+systemctl restart sshd
