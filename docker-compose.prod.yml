@@ -31,8 +31,6 @@ services:
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
         loki-external-labels: job=arena-backend-prod,env=production
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
-    command: [ "bun", "run", "src/index.ts" ]
 
   # --- POSTGRES (PROD) ---
   postgres:
