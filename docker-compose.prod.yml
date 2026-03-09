@@ -180,6 +180,7 @@ services:
 
 networks:
   arena-network:
+    name: arena-network
     driver: bridge
 
 volumes:
