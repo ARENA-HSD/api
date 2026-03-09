@@ -9,6 +9,8 @@ export type GameMode = 'PERSONAL' | 'STAGE';
 // REDIS DATA STRUCTURES
 
 
+export type GamePhase = 'LOBBY' | 'QUESTION_START' | 'QUESTION_END' | 'LEADERBOARD_RESULT' | 'GAME_OVER';
+
 export interface GameState {
     status: GameStatus;
     currentQuestionIndex: number;
@@ -19,6 +21,7 @@ export interface GameState {
     quizId: string;
     totalPlayers: number;
     totalQuestions: number;
+    currentPhase: GamePhase;
 }
 
 export interface PlayerInfo {

@@ -398,6 +398,114 @@ export async function handleSetNickname(ws: any, data: SetNicknameEvent['data'])
 
 
 /**
+ * Resends the current phase event directly to the host after reconnect.
+ * This allows the host to restore its UI to the correct screen.
+ */
+async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
+    const phase = state.currentPhase;
+
+    if (phase === 'LOBBY') {
+        // Send lobby update
+        const players = await GamesHelper.getAllPlayerSockets(pin);
+        const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+        ws.send(JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: { count: players.length, recentPlayers },
+        }));
+    } else if (phase === 'QUESTION_START') {
+        // Re-send QUESTION_START with current question data
+        const quiz = await db.query.quizzes.findFirst({
+            where: eq(schema.quizzes.id, state.quizId),
+            with: {
+                questions: {
+                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
+                },
+            },
+        });
+        if (quiz && quiz.questions[state.currentQuestionIndex]) {
+            const question = quiz.questions[state.currentQuestionIndex];
+            const questionData = {
+                id: question.id,
+                text: question.text,
+                mediaUrl: question.mediaUrl || undefined,
+                timeLimit: question.timeLimit,
+                points: question.points || 1000,
+                correctIndex: question.correctIndex,
+                orderIndex: question.orderIndex,
+                options: question.options as any,
+            };
+            const filteredQuestion = filterQuestionByMode(questionData, 'PERSONAL');
+
+            // Calculate remaining time
+            const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
+            let remainingTime: number | undefined;
+            if (questionStartTime) {
+                const elapsed = (Date.now() - questionStartTime) / 1000;
+                remainingTime = Math.max(0, question.timeLimit - elapsed);
+            }
+
+            // Send answer stats
+            const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+            const currentState = await GamesHelper.getGameState(pin);
+            ws.send(JSON.stringify({
+                type: 'ANSWER_STAT_UPDATE',
+                data: {
+                    answeredCount,
+                    totalPlayers: currentState ? currentState.totalPlayers : 0,
+                },
+            }));
+
+            ws.send(JSON.stringify({
+                type: 'QUESTION_START',
+                data: { ...filteredQuestion, mode: 'PERSONAL', remainingTime },
+            }));
+        }
+    } else if (phase === 'QUESTION_END') {
+        // Re-send QUESTION_END
+        const quiz = await db.query.quizzes.findFirst({
+            where: eq(schema.quizzes.id, state.quizId),
+            with: {
+                questions: {
+                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
+                },
+            },
+        });
+        if (quiz && quiz.questions[state.currentQuestionIndex]) {
+            const question = quiz.questions[state.currentQuestionIndex];
+            const answerStats = await GamesHelper.getAnswerStats(pin, question.id);
+            const streakLeaders = await GamesHelper.getStreakLeaders(pin, 5);
+            ws.send(JSON.stringify({
+                type: 'QUESTION_END',
+                data: {
+                    correctIndex: question.correctIndex,
+                    answerStats,
+                    streakLeaders,
+                },
+            }));
+        }
+    } else if (phase === 'LEADERBOARD_RESULT') {
+        // Re-send LEADERBOARD_RESULT
+        const top5 = await GamesHelper.getLeaderboard(pin, 5);
+        const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+        ws.send(JSON.stringify({
+            type: 'LEADERBOARD_RESULT',
+            data: {
+                top5,
+                recentPlayers,
+            },
+        }));
+    } else if (phase === 'GAME_OVER') {
+        // Re-send GAME_OVER
+        const finalScores = await GamesHelper.getLeaderboard(pin, 10);
+        ws.send(JSON.stringify({
+            type: 'GAME_OVER',
+            data: { finalScores },
+        }));
+    }
+}
+
+
+/**
  * Handle RECONNECT event — restores player/host session after connection drop
  */
 export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
@@ -451,6 +559,27 @@ export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
         console.log(`Host reconnected: session=${sessionToken} old=${oldSocketId} new=${newSocketId} pin=${pin}`);
         logEvent({ event: 'game.host.reconnected', level: 'INFO', source: 'code', data: { pin, sessionToken, oldSocketId, newSocketId } });
 
+        // Calculate remaining time if a question is active
+        let remainingTime: number | undefined;
+        if (state.status === 'ACTIVE') {
+            const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
+            if (questionStartTime) {
+                const quiz = await db.query.quizzes.findFirst({
+                    where: eq(schema.quizzes.id, state.quizId),
+                    with: {
+                        questions: {
+                            orderBy: (questions, { asc }) => [asc(questions.orderIndex)],
+                        },
+                    },
+                });
+                if (quiz && quiz.questions[state.currentQuestionIndex]) {
+                    const timeLimit = quiz.questions[state.currentQuestionIndex].timeLimit;
+                    const elapsed = (Date.now() - questionStartTime) / 1000;
+                    remainingTime = Math.max(0, timeLimit - elapsed);
+                }
+            }
+        }
+
         ws.send(JSON.stringify({
             type: 'RECONNECT_SUCCESS',
             data: {
@@ -463,8 +592,13 @@ export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
                 totalQuestions: state.totalQuestions,
                 isHost: true,
                 mode: state.mode,
+                remainingTime,
+                currentPhase: state.currentPhase,
             },
         }));
+
+        // Resend current phase event so the host can restore its UI
+        await resendHostPhaseEvent(ws, pin, state);
         return;
     }
 
@@ -738,7 +872,7 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     };
 
     // 2. Update current question index
-    await GamesHelper.updateGameState(pin, { currentQuestionIndex: questionIndex });
+    await GamesHelper.updateGameState(pin, { currentQuestionIndex: questionIndex, currentPhase: 'QUESTION_START' });
 
     // 3. Reset answer flags
     await GamesHelper.resetAllAnswerFlags(pin);
@@ -890,9 +1024,10 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
         },
     }));
     */
-    // 10. Check if all players answered — use actual answered count to avoid races
+    // 10. Check if all active (non-disconnected) players answered
     try {
         const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+        const activePlayers = await GamesHelper.countActivePlayers(pin);
         const currentState = await GamesHelper.getGameState(pin);
         ws.publish(`game:${pin}:host`, JSON.stringify({
             type: 'ANSWER_STAT_UPDATE',
@@ -901,8 +1036,8 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
                 totalPlayers: currentState ? currentState.totalPlayers : 0,
             },
         }));
-        if (currentState && answeredCount >= currentState.totalPlayers) {
-            // Automatically show QUESTION_END after all players answered
+        if (currentState && activePlayers > 0 && answeredCount >= activePlayers) {
+            // Automatically show QUESTION_END after all active players answered
             setTimeout(() => showQuestionEnd(pin, questionIndex, question.id, question.correctIndex), 1000);
         }
     } catch (err) {
@@ -923,6 +1058,9 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
 
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
+
+    // Update phase
+    await GamesHelper.updateGameState(pin, { currentPhase: 'QUESTION_END' });
 
     // Clear any scheduled timer for this question since we're ending it now
     try {
@@ -1005,6 +1143,9 @@ export async function showLeaderboard(pin: string) {
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
 
+    // Update phase
+    await GamesHelper.updateGameState(pin, { currentPhase: 'LEADERBOARD_RESULT' });
+
     // Get top 5 leaderboard
     const top5 = await GamesHelper.getLeaderboard(pin, 5);
 
@@ -1058,7 +1199,7 @@ export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data'
     const nextIndex = state.currentQuestionIndex + 1;
     if (nextIndex >= state.totalQuestions) {
         // Game over
-        await GamesHelper.updateGameState(pin, { status: 'FINISHED' });
+        await GamesHelper.updateGameState(pin, { status: 'FINISHED', currentPhase: 'GAME_OVER' });
         const finalScores = await GamesHelper.getLeaderboard(pin, 10);
 
         const { publish } = await import('../../core/pubsub/broadcaster');

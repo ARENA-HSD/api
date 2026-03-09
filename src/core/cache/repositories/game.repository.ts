@@ -5,6 +5,7 @@
 import Redis from 'ioredis';
 import type {
     GameState,
+    GamePhase,
     PlayerInfo,
     LeaderboardEntry,
     QuestionData,
@@ -138,6 +139,7 @@ export async function createGameState(
         quizId,
         totalPlayers: 0,
         totalQuestions,
+        currentPhase: 'LOBBY',
     };
 
     await redis.hset(getGameStateKey(pin), state as any);
@@ -163,6 +165,7 @@ export async function getGameState(pin: string): Promise<GameState | null> {
         quizId: state.quizId,
         totalPlayers: parseInt(state.totalPlayers),
         totalQuestions: parseInt(state.totalQuestions),
+        currentPhase: (state.currentPhase as GamePhase) || 'LOBBY',
     };
 }
 
@@ -519,6 +522,19 @@ export async function countAnsweredPlayers(pin: string): Promise<number> {
     for (const sid of socketIds) {
         const info = await getPlayerInfo(pin, sid);
         if (info && info.hasAnswered) count++;
+    }
+    return count;
+}
+
+/**
+ * Counts active (non-disconnected) players
+ */
+export async function countActivePlayers(pin: string): Promise<number> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    let count = 0;
+    for (const sid of socketIds) {
+        const info = await getPlayerInfo(pin, sid);
+        if (info && !info.disconnected) count++;
     }
     return count;
 }
