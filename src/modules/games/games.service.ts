@@ -6,6 +6,8 @@
 import { db, schema } from '../../core/database/client';
 import { eq } from 'drizzle-orm';
 import * as GamesHelper from '../../core/cache/repositories/game.repository';
+import { logEvent } from '../../shared/helpers/log.helper';
+import { isSocketAlive } from '../../core/pubsub/broadcaster';
 import type {
     CreateGameRequest,
     CreateGameResponse,
@@ -16,7 +18,25 @@ import type {
     SubmitAnswerEvent,
     ShowLeaderboardEvent,
     NextQuestionEvent,
+    ReconnectEvent,
+    SetNicknameEvent,
 } from './games.types';
+
+
+// Local in-memory timers for question end scheduling per game pin
+const questionTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+// Grace period timers: keyed by "pin:sessionToken" — if player doesn't reconnect within GRACE_PERIOD_MS, remove them
+const disconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const GRACE_PERIOD_MS = parseInt(process.env.RECONNECT_GRACE_PERIOD_MS || '60000', 10); // 60 seconds default
+
+function clearLocalQuestionTimer(pin: string) {
+    const t = questionTimers.get(pin);
+    if (t) {
+        clearTimeout(t);
+        questionTimers.delete(pin);
+    }
+}
 
 
 // UTILITY FUNCTIONS
@@ -178,10 +198,14 @@ export async function createGame(
 
 
 /**
- * PDF SPEC: Handle JOIN_ROOM event
+ * Phase 1 of join flow.
+ * Client sends { pin, sessionToken? }.
+ * - Valid sessionToken  → auto-reconnect (delegates to handleReconnect).
+ * - Missing/invalid     → game must be in LOBBY; server replies NEED_NICKNAME
+ *                         and waits for a SET_NICKNAME event to complete the join.
  */
 export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
-    const { pin, nickname } = data;
+    const { pin, sessionToken } = data;
     const ip = GamesHelper.getClientIP(ws.raw?.headers || {});
 
     // 1. Check if game exists
@@ -191,6 +215,7 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
             type: 'ERROR',
             data: { message: 'Game not found' },
         }));
+        logEvent({ event: 'game.join.invalid_pin', level: 'WARNING', source: 'code', data: { pin } });
         return;
     }
 
@@ -204,81 +229,368 @@ export async function handleJoinRoom(ws: any, data: JoinRoomEvent['data']) {
         return;
     }
 
+    // 3. If sessionToken provided, attempt auto-reconnect
+    if (sessionToken) {
+        const oldSocketId = await GamesHelper.getSocketBySession(pin, sessionToken);
+        const isHostSession = state.hostSessionToken === sessionToken;
+
+        if (oldSocketId || isHostSession) {
+            // Valid session — delegate entirely to reconnect logic
+            await handleReconnect(ws, { pin, sessionToken });
+            return;
+        }
+
+        // Session not found / expired — fall through and ask for nickname
+        logEvent({ event: 'game.join.session_not_found', level: 'INFO', source: 'code', data: { pin, socketId: ws.id } });
+    }
+
+    // 4. New joins are only allowed while the game is in the LOBBY
+    if (state.status !== 'LOBBY') {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Game is already in progress' },
+        }));
+        return;
+    }
+
+    // 5. Ask the client to supply a nickname (phase 2)
+    (ws.data as any).pendingPin = pin;
+    ws.send(JSON.stringify({
+        type: 'NEED_NICKNAME',
+        data: { message: 'Please provide a nickname to join the game' },
+    }));
+    logEvent({ event: 'game.join.need_nickname', level: 'INFO', source: 'code', data: { pin, socketId: ws.id } });
+}
+
+
+/**
+ * Phase 2 of join flow.
+ * Client sends { pin, nickname } after receiving NEED_NICKNAME.
+ * Completes the join — assigns host role or adds as player.
+ */
+export async function handleSetNickname(ws: any, data: SetNicknameEvent['data']) {
+    const { pin, nickname } = data;
+
+    // Validate that this socket has a pending join for this pin
+    if ((ws.data as any).pendingPin !== pin) {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'No pending join for this game. Send JOIN_ROOM first.' },
+        }));
+        return;
+    }
+
+    const ip = GamesHelper.getClientIP(ws.raw?.headers || {});
+
+    // 1. Re-check game state (may have changed since JOIN_ROOM)
+    const state = await GamesHelper.getGameState(pin);
+    if (!state) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Game not found' } }));
+        return;
+    }
+
+    if (state.status !== 'LOBBY') {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Game is no longer accepting new players' },
+        }));
+        return;
+    }
+
+    // 2. Clear pending state
+    delete (ws.data as any).pendingPin;
+
     // 3. Handle nickname duplication (PDF spec: add #1, #2, etc.)
     const existingNicknames = await GamesHelper.getAllNicknames(pin);
     const uniqueNickname = GamesHelper.handleNicknameDuplication(nickname, existingNicknames);
 
-    // 4. Add player to game
-    await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
-
-    // PDF SPEC: Add to recent players list (LTRIM to 28)
-    await GamesHelper.addRecentPlayer(pin, uniqueNickname);
-
-    // 5. Subscribe to game room
-    ws.subscribe(`game:${pin}`);
-
-    // Refresh state after adding player
     const updatedState = await GamesHelper.getGameState(pin);
+    if (!updatedState) return;
 
-    // If no host assigned yet (after add), set this socket as host and subscribe to host channel
-    if (updatedState && !updatedState.hostSocketId) {
-        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id });
-        ws.subscribe(`game:${pin}:host`);
+    // Guard: this socket is already registered as the host
+    if (updatedState.hostSocketId === ws.id) {
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: nickname, sessionToken: updatedState.hostSessionToken || undefined },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
     }
 
-    // 6. Notify player of successful join
-    ws.send(JSON.stringify({
-        type: 'JOIN_SUCCESS',
-        data: {
-            status: 'WAITING',
-            myNick: uniqueNickname,
-        },
-    }));
+    // Guard: this socket is already registered as a player
+    const existingPlayerInfo = await GamesHelper.getPlayerInfo(pin, ws.id);
+    if (existingPlayerInfo) {
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: existingPlayerInfo.nickname, sessionToken: existingPlayerInfo.sessionToken || undefined },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
+    }
 
-    // 7. Notify all players in room (PLAYER_JOINED)
+    // Host reconnection: hostSocketId is populated but that socket is dead (e.g. page refresh without a valid session)
+    if (updatedState.hostSocketId && !isSocketAlive(updatedState.hostSocketId)) {
+        console.log(`Host reclaimed via SET_NICKNAME: old=${updatedState.hostSocketId} new=${ws.id} pin=${pin}`);
+        const hostSessionToken = updatedState.hostSessionToken || crypto.randomUUID();
+        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
+        await GamesHelper.createSession(pin, ws.id, hostSessionToken);
+        ws.subscribe(`game:${pin}:host`);
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
+        }));
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = ws.id;
+        return;
+    }
+
+    // No host assigned yet — first to complete the flow becomes the host
+    if (!updatedState.hostSocketId) {
+        const hostSessionToken = crypto.randomUUID();
+        await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
+        await GamesHelper.createSession(pin, ws.id, hostSessionToken);
+        ws.subscribe(`game:${pin}:host`);
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
+        }));
+    } else {
+        // Add as a regular player
+        await GamesHelper.addPlayer(pin, ws.id, uniqueNickname, ip);
+
+        const playerSessionToken = crypto.randomUUID();
+        await GamesHelper.createSession(pin, ws.id, playerSessionToken);
+        // Store sessionToken inside the player info hash for later retrieval
+        const playerInfoKey = `game:${pin}:player:${ws.id}`;
+        await GamesHelper.redis.hset(playerInfoKey, 'sessionToken', playerSessionToken);
+
+        // PDF SPEC: Add to recent players list (LTRIM to 28)
+        await GamesHelper.addRecentPlayer(pin, uniqueNickname);
+
+        ws.subscribe(`game:${pin}`);
+        ws.subscribe(`game:${pin}:player:${ws.id}`);
+
+        ws.send(JSON.stringify({
+            type: 'JOIN_SUCCESS',
+            data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: playerSessionToken },
+        }));
+    }
+
+    // Broadcast lobby update to host
     try {
         const { publish } = await import('../../core/pubsub/broadcaster');
-        await publish(`game:${pin}`, JSON.stringify({
-            type: 'PLAYER_JOINED',
-            data: {
-                nickname: uniqueNickname,
-                playerCount: updatedState ? updatedState.totalPlayers : 0,
-            },
-        }));
-
-        // Also broadcast LOBBY_UPDATE after join so clients refresh lobby immediately
         const players = await GamesHelper.getAllPlayerSockets(pin);
-        const playerList: { socketId: string; nickname: string }[] = [];
-        for (const sid of players) {
-            const info = await GamesHelper.getPlayerInfo(pin, sid);
-            if (info) {
-                playerList.push({ socketId: sid, nickname: info.nickname });
-            }
-        }
-
         const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
-
-        await publish(`game:${pin}`, JSON.stringify({
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'LOBBY_UPDATE',
-            data: {
-                count: playerList.length,
-                recentPlayers
-            }
+            data: { count: players.length, recentPlayers },
         }));
     } catch (err) {
         console.error('Failed to broadcast lobby update on join', err);
+        logEvent({ event: 'ws.broadcast.error', level: 'ERROR', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown', context: 'lobby_update_set_nickname' } });
     }
 
-    // Store pin in ws.data for cleanup
     (ws.data as any).pin = pin;
     (ws.data as any).socketId = ws.id;
 }
+
+
+/**
+ * Handle RECONNECT event — restores player/host session after connection drop
+ */
+export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
+    const { pin, sessionToken } = data;
+
+    // 1. Validate game exists
+    const state = await GamesHelper.getGameState(pin);
+    if (!state) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Game not found' } }));
+        return;
+    }
+
+    // 2. Look up old socketId from session token
+    const oldSocketId = await GamesHelper.getSocketBySession(pin, sessionToken);
+    if (!oldSocketId) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Session expired or invalid' } }));
+        return;
+    }
+
+    const newSocketId = ws.id;
+    const isHost = state.hostSessionToken === sessionToken;
+
+    // 3. Cancel grace period timer if active
+    const timerKey = `${pin}:${sessionToken}`;
+    const existingTimer = disconnectTimers.get(timerKey);
+    if (existingTimer) {
+        clearTimeout(existingTimer);
+        disconnectTimers.delete(timerKey);
+    }
+
+    // 4. Get player info from old socket (before migration)
+    const playerInfo = await GamesHelper.getPlayerInfo(pin, oldSocketId);
+
+    if (isHost) {
+        // HOST RECONNECT
+        await GamesHelper.updateGameState(pin, { hostSocketId: newSocketId });
+        await GamesHelper.updateSessionSocket(pin, sessionToken, oldSocketId, newSocketId);
+
+        // If host was also a player (shouldn't be, but defensive)
+        if (playerInfo) {
+            await GamesHelper.migratePlayerSocket(pin, oldSocketId, newSocketId, state.totalQuestions, state.quizId);
+            await GamesHelper.markPlayerReconnected(pin, newSocketId);
+        }
+
+        // Re-subscribe to host channel
+        ws.subscribe(`game:${pin}:host`);
+
+        (ws.data as any).pin = pin;
+        (ws.data as any).socketId = newSocketId;
+
+        console.log(`Host reconnected: session=${sessionToken} old=${oldSocketId} new=${newSocketId} pin=${pin}`);
+        logEvent({ event: 'game.host.reconnected', level: 'INFO', source: 'code', data: { pin, sessionToken, oldSocketId, newSocketId } });
+
+        ws.send(JSON.stringify({
+            type: 'RECONNECT_SUCCESS',
+            data: {
+                nickname: 'HOST',
+                gameStatus: state.status,
+                currentQuestionIndex: state.currentQuestionIndex,
+                score: 0,
+                streak: 0,
+                hasAnswered: false,
+                totalQuestions: state.totalQuestions,
+                isHost: true,
+                mode: state.mode,
+            },
+        }));
+        return;
+    }
+
+    // PLAYER RECONNECT
+    if (!playerInfo) {
+        ws.send(JSON.stringify({ type: 'ERROR', data: { message: 'Player session not found' } }));
+        return;
+    }
+
+    // 5. Migrate player data from old socket to new socket
+    if (oldSocketId !== newSocketId) {
+        await GamesHelper.migratePlayerSocket(pin, oldSocketId, newSocketId, state.totalQuestions, state.quizId);
+        await GamesHelper.updateSessionSocket(pin, sessionToken, oldSocketId, newSocketId);
+    }
+
+    // 6. Mark player as reconnected
+    await GamesHelper.markPlayerReconnected(pin, newSocketId);
+
+    // 7. Re-subscribe to channels
+    ws.subscribe(`game:${pin}`);
+    ws.subscribe(`game:${pin}:player:${newSocketId}`);
+
+    (ws.data as any).pin = pin;
+    (ws.data as any).socketId = newSocketId;
+
+    // 8. Calculate remaining time if a question is active
+    let remainingTime: number | undefined;
+    if (state.status === 'ACTIVE') {
+        const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
+        if (questionStartTime) {
+            const quiz = await db.query.quizzes.findFirst({
+                where: eq(schema.quizzes.id, state.quizId),
+                with: {
+                    questions: {
+                        orderBy: (questions, { asc }) => [asc(questions.orderIndex)],
+                    },
+                },
+            });
+            if (quiz && quiz.questions[state.currentQuestionIndex]) {
+                const timeLimit = quiz.questions[state.currentQuestionIndex].timeLimit;
+                const elapsed = (Date.now() - questionStartTime) / 1000;
+                remainingTime = Math.max(0, timeLimit - elapsed);
+            }
+        }
+    }
+
+    console.log(`Player reconnected: ${playerInfo.nickname} session=${sessionToken} old=${oldSocketId} new=${newSocketId} pin=${pin}`);
+    logEvent({ event: 'game.player.reconnected', level: 'INFO', source: 'code', data: { pin, nickname: playerInfo.nickname, sessionToken, oldSocketId, newSocketId } });
+
+    // 9. Send RECONNECT_SUCCESS with current game state
+    ws.send(JSON.stringify({
+        type: 'RECONNECT_SUCCESS',
+        data: {
+            nickname: playerInfo.nickname,
+            gameStatus: state.status,
+            currentQuestionIndex: state.currentQuestionIndex,
+            score: playerInfo.score,
+            streak: playerInfo.streak,
+            hasAnswered: playerInfo.hasAnswered,
+            totalQuestions: state.totalQuestions,
+            isHost: false,
+            mode: state.mode,
+            remainingTime,
+        },
+    }));
+
+    // 10. Notify host of player reconnection
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'PLAYER_RECONNECTED',
+            data: { nickname: playerInfo.nickname },
+        }));
+    } catch (err) {
+        console.error('Failed to publish PLAYER_RECONNECTED', err);
+    }
+}
+
+/**
+ * Starts a grace period timer for a disconnected player.
+ * If the player doesn't reconnect within GRACE_PERIOD_MS, they are fully removed.
+ */
+export function startDisconnectGracePeriod(pin: string, socketId: string, sessionToken: string) {
+    const timerKey = `${pin}:${sessionToken}`;
+
+    // Clear any existing timer for this session
+    const existing = disconnectTimers.get(timerKey);
+    if (existing) clearTimeout(existing);
+
+    const timer = setTimeout(async () => {
+        disconnectTimers.delete(timerKey);
+        try {
+            // Check if player is still disconnected (they may have reconnected with same old socketId somehow)
+            const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
+            if (playerInfo && playerInfo.disconnected) {
+                console.log(`Grace period expired for ${playerInfo.nickname} in game ${pin}, removing player`);
+                logEvent({ event: 'game.player.grace_expired', level: 'INFO', source: 'code', data: { pin, nickname: playerInfo.nickname, sessionToken } });
+
+                await GamesHelper.removePlayer(pin, socketId);
+                await GamesHelper.removeSession(pin, sessionToken, socketId);
+
+                // Broadcast updated player count if LOBBY
+                const state = await GamesHelper.getGameState(pin);
+                if (state && state.status === 'LOBBY') {
+                    const { publish } = await import('../../core/pubsub/broadcaster');
+                    const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+                    await publish(`game:${pin}:host`, JSON.stringify({
+                        type: 'LOBBY_UPDATE',
+                        data: { count: state.totalPlayers - 1, recentPlayers },
+                    }));
+                }
+            }
+        } catch (err) {
+            console.error('Grace period cleanup error:', err);
+        }
+    }, GRACE_PERIOD_MS);
+
+    disconnectTimers.set(timerKey, timer);
+}
+
 
 /**
  * Handle KICK_PLAYER event
  */
 export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
-    const { socketId, ban } = data;
+    const { nickname, ban } = data;
     const pin = (ws.data as any)?.pin;
     if (!pin) return;
 
@@ -292,25 +604,56 @@ export async function handleKickPlayer(ws: any, data: KickPlayerEvent['data']) {
         return;
     }
 
-    // 2. Get player info to ban IP
+    // 2. Find socketId by nickname
+    const socketId = await GamesHelper.findSocketByNickname(pin, nickname);
+    if (!socketId) {
+        ws.send(JSON.stringify({
+            type: 'ERROR',
+            data: { message: 'Player not found' },
+        }));
+        return;
+    }
+
+    // 3. Get player info to ban IP
     const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
     if (!playerInfo) return;
 
     if (ban) {
-        // 3. Ban IP
+        // 4. Ban IP
         await GamesHelper.addToBanList(pin, playerInfo.ip);
-
     }
 
-    // 4. Remove player
-    await GamesHelper.removePlayer(pin, socketId);
-
-    // 5. Notify everyone
+    // 5. Send FORCE_DISCONNECT to the kicked player before removing
     try {
         const { publish } = await import('../../core/pubsub/broadcaster');
-        await publish(`game:${pin}`, JSON.stringify({
+        await publish(`game:${pin}:player:${socketId}`, JSON.stringify({
+            type: 'FORCE_DISCONNECT',
+            data: { reason: ban ? 'You have been banned from this game' : 'You have been kicked from this game' },
+        }));
+    } catch (err) {
+        console.error('Failed to publish FORCE_DISCONNECT', err);
+    }
+
+    // 6. Remove player
+    await GamesHelper.removePlayer(pin, socketId);
+
+    // 7. Notify host
+    try {
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'PLAYER_KICKED',
             data: { nickname: playerInfo.nickname },
+        }));
+
+        // 8. Send LOBBY_UPDATE so host's player list no longer shows the kicked player
+        const updatedState = await GamesHelper.getGameState(pin);
+        const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
+        await publish(`game:${pin}:host`, JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: {
+                count: updatedState ? updatedState.totalPlayers : 0,
+                recentPlayers,
+            },
         }));
     } catch (err) {
         console.error('Failed to publish PLAYER_KICKED', err);
@@ -330,6 +673,7 @@ export async function handleStartGame(ws: any, data: StartGameEvent['data']) {
             type: 'ERROR',
             data: { message: 'Only host can start game' },
         }));
+        logEvent({ event: 'game.start.denied', level: 'WARNING', source: 'code', data: { pin, socketId: ws.id } });
         return;
     }
 
@@ -405,14 +749,31 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     // 5. Set question start time
     await GamesHelper.setQuestionStartTime(pin, Date.now());
 
+    // Clear any existing local timer for this pin (prevent duplicate scheduling)
+    clearLocalQuestionTimer(pin);
+
     // 6. Send QUESTION_START (differentiated by mode)
     const filteredQuestion = filterQuestionByMode(questionData, state.mode);
 
+    // 7. Send QUESTION_START (differentiated by mode)
+    const filteredPersonalQuestion = filterQuestionByMode(questionData, "PERSONAL"); // send full data to host for PERSONAL mode
+
     // PDF SPEC: To host (PERSONAL mode)
-        const { publish } = await import('../../core/pubsub/broadcaster');
+    const { publish } = await import('../../core/pubsub/broadcaster');
+
+    const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+    const currentState = await GamesHelper.getGameState(pin);
+    await publish(`game:${pin}:host`, JSON.stringify({
+        type: 'ANSWER_STAT_UPDATE',
+        data: {
+            answeredCount,
+            totalPlayers: currentState ? currentState.totalPlayers : 0,
+        },
+    }));
+
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_START',
-        data: { ...filteredQuestion, mode: 'PERSONAL' },
+        data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
     }));
 
     // PDF SPEC: To players (use game mode)
@@ -420,13 +781,34 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
         type: 'QUESTION_START',
         data: { ...filteredQuestion, mode: state.mode },
     }));
+
+    // Schedule QUESTION_END when question time expires (add small buffer)
+    try {
+        const timeoutMs = (question.timeLimit * 1000) + 200;
+        const timer = setTimeout(async () => {
+            try {
+                const currentState = await GamesHelper.getGameState(pin);
+                // only trigger if still on the same question index
+                if (currentState && currentState.currentQuestionIndex === questionIndex) {
+
+                    await showQuestionEnd(pin, questionIndex, question.id, question.correctIndex);
+                }
+            } catch (err) {
+                console.error('Error in scheduled question end', err);
+            }
+        }, timeoutMs);
+
+        questionTimers.set(pin, timer);
+    } catch (err) {
+        console.error('Failed to schedule question end', err);
+    }
 }
 
 /**
  * PDF SPEC: Handle SUBMIT_ANSWER event
  */
 export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data']) {
-    const { questionId, answerIndex } = data;
+    const { answerIndex } = data;
     const pin = (ws.data as any)?.pin;
     if (!pin) return;
 
@@ -495,6 +877,7 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
     const previousRank = await GamesHelper.getPreviousRank(pin, playerInfo.nickname);
 
     // 9. Send personal result to player
+    /*
     ws.send(JSON.stringify({
         type: 'ANSWER_RESULT',
         data: {
@@ -506,21 +889,47 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
             streak: newStreak,
         },
     }));
-
-    // 10. Check if all players answered
-    const updatedState = await GamesHelper.getGameState(pin);
-    if (updatedState && updatedState.totalAnswers >= updatedState.totalPlayers) {
-        // Automatically show QUESTION_END after all players answered
-        setTimeout(() => showQuestionEnd(pin, questionIndex, question.id), 1000);
+    */
+    // 10. Check if all players answered — use actual answered count to avoid races
+    try {
+        const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+        const currentState = await GamesHelper.getGameState(pin);
+        ws.publish(`game:${pin}:host`, JSON.stringify({
+            type: 'ANSWER_STAT_UPDATE',
+            data: {
+                answeredCount,
+                totalPlayers: currentState ? currentState.totalPlayers : 0,
+            },
+        }));
+        if (currentState && answeredCount >= currentState.totalPlayers) {
+            // Automatically show QUESTION_END after all players answered
+            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id, question.correctIndex), 1000);
+        }
+    } catch (err) {
+        console.error('Error checking answered players', err);
     }
 }
 
 /**
  * PDF SPEC: Helper - Show QUESTION_END with differentiated data
  */
-export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string) {
+export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string, correctIndex: number) {
+    // Atomik lock: ayni soru icin showQuestionEnd sadece bir kez calisir
+    const lockAcquired = await GamesHelper.acquireQuestionEndLock(pin, questionIndex);
+    if (!lockAcquired) {
+        // Baska bir tetikleyici (timer veya all-players-answered) zaten calistirdi
+        return;
+    }
+
     const state = await GamesHelper.getGameState(pin);
     if (!state) return;
+
+    // Clear any scheduled timer for this question since we're ending it now
+    try {
+        clearLocalQuestionTimer(pin);
+    } catch (err) {
+        // ignore
+    }
 
     // PDF SPEC: Get answer statistics
     const answerStats = await GamesHelper.getAnswerStats(pin, questionId);
@@ -534,27 +943,46 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_END',
         data: {
-            qIndex: questionIndex,
+            correctIndex, // only correct answer index for host
             answerStats, // { "0": 15, "1": 5, "2": 40, "3": 0 }
             streakLeaders,
         },
     }));
 
-    // To players: only streak leaders
-    await publish(`game:${pin}`, JSON.stringify({
-        type: 'QUESTION_END',
-        data: {
-            qIndex: questionIndex,
-            streakLeaders,
-        },
-    }));
+    // To players: send individualized data to each player's personal channel
+    try {
+        const playerSockets = await GamesHelper.getAllPlayerSockets(pin);
+        for (const sid of playerSockets) {
+            const pInfo = await GamesHelper.getPlayerInfo(pin, sid);
+            if (!pInfo) continue;
+
+            const playerAnswer = await GamesHelper.getPlayerAnswer(pin, questionId, sid);
+            const playerIsCorrect = playerAnswer !== null ? (playerAnswer === correctIndex) : false;
+            const playerPoints = pInfo.lastPoints || 0;
+            const playerNewScore = pInfo.score || 0;
+
+            await publish(`game:${pin}:player:${sid}`, JSON.stringify({
+                type: 'QUESTION_END',
+                data: {
+                    qIndex: questionIndex,
+                    streakLeaders,
+                    correctIndex,
+                    correct: playerIsCorrect,
+                    points: playerPoints,
+                    newScore: playerNewScore,
+                },
+            }));
+        }
+    } catch (err) {
+        console.error('Failed to publish individualized QUESTION_END', err);
+    }
 }
 
 /**
  * PDF SPEC: Handle SHOW_LEADERBOARD event (manual trigger)
  */
 export async function handleShowLeaderboard(ws: any, data: ShowLeaderboardEvent['data']) {
-    const pin = data.gameId; // types.ts uses gameId
+    const pin = (ws.data as any)?.pin; // Use stored PIN, not data.gameId (frontend sends quiz ID)
 
     // 1. Verify sender is host
     const state = await GamesHelper.getGameState(pin);
@@ -594,20 +1022,27 @@ export async function showLeaderboard(pin: string) {
         },
     }));
 
-    // To players: only top 5
-    await publish(`game:${pin}`, JSON.stringify({
-        type: 'LEADERBOARD_RESULT',
-        data: {
-            top5,
-        },
-    }));
+    // To players: send via individual channels (reliable delivery)
+    try {
+        const playerSockets = await GamesHelper.getAllPlayerSockets(pin);
+        for (const sid of playerSockets) {
+            await publish(`game:${pin}:player:${sid}`, JSON.stringify({
+                type: 'LEADERBOARD_RESULT',
+                data: {
+                    top5,
+                },
+            }));
+        }
+    } catch (err) {
+        console.error('Failed to publish individualized LEADERBOARD_RESULT', err);
+    }
 }
 
 /**
  * Handle NEXT_QUESTION event
  */
 export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data']) {
-    const pin = data.gameId; // types.ts uses gameId
+    const pin = (ws.data as any)?.pin; // Use stored PIN, not data.gameId (frontend sends quiz ID)
 
     // 1. Verify sender is host
     const state = await GamesHelper.getGameState(pin);
@@ -628,6 +1063,11 @@ export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data'
 
         const { publish } = await import('../../core/pubsub/broadcaster');
         await publish(`game:${pin}`, JSON.stringify({
+            type: 'GAME_OVER',
+            data: { finalScores },
+        }));
+
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'GAME_OVER',
             data: { finalScores },
         }));

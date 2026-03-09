@@ -26,6 +26,24 @@ export async function createOrganization(
     data: CreateOrganizationData,
     ownerId: string
 ) {
+
+    // Check if user is already owner of an organization (optional, can own multiple orgs but maybe we want to limit to 2 or something)
+    const existingOrg = await db
+        .select()
+        .from(schema.organizations)
+        .where(eq(schema.organizations.ownerId, ownerId))
+        .limit(1);
+
+    if (existingOrg.length >= 3) { // Limit to 3 organizations per user
+        throw new Error("You have reached the maximum number of organizations you can own");
+    }
+
+    // Check if subdomain includes words that are not allowed (e.g. "www", "admin", "support")
+    const forbiddenSubdomains = ["www", "admin", "support", "api", "mail", "ftp", "dashboard", "app", "blog", "shop", "help", "status", "dev", "test", "staging", "beta", "alpha", "demo", "portal", "secure", "server", "static", "cdn", "sys", "system", "root", "manager", "manage", "administrator", "moderator", "mod", "owner", "team", "teams", "users", "user", "member", "members", "account", "accounts", "billing", "finance", "pay", "payment", "invoices", "invoice", "subscribe", "subscription", "subscriptions", "auth", "login", "signin", "signup", "register", "oauth", "sso", "support", "helpdesk", "contact", "contacts", "feedback", "forum", "forums", "community", "communities", "news", "press", "media", "legal", "privacy", "terms", "conditions", "policy", "policies", "about", "team", "careers", "jobs", "blog", "blogs", "events", "event", "webinar", "webinars", "docs", "documentation", "apis", "v1", "v2", "v3", "v4", "v5"];
+    if (forbiddenSubdomains.includes(data.subdomain.toLowerCase())) {
+        throw new Error("Subdomain is not allowed");
+    }
+
     // Check if subdomain already exists
     const [existing] = await db
         .select()
@@ -96,12 +114,15 @@ export async function getOrganizationsByUser(userId: string) {
 }
 
 /**
- * Update organization (only owner can update)
+ * Update organization
+ * name/subdomain → SUPER_ADMIN only
+ * branding → SUPER_ADMIN + ADMIN
  */
 export async function updateOrganization(
     subdomain: string,
     data: UpdateOrganizationData,
-    userId: string
+    userId: string,
+    userRole: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | null
 ) {
     // Get organization
     const organization = await getOrganizationByDomain(subdomain);
@@ -109,9 +130,25 @@ export async function updateOrganization(
         throw new Error("Organization not found");
     }
 
-    // Check if user is the owner
-    if (organization.ownerId !== userId) {
-        throw new Error("Only the organization owner can update it");
+    // Must be a member
+    if (!userRole) {
+        throw new Error("Not a member of this organization");
+    }
+
+    // name/subdomain → only SUPER_ADMIN
+    if ((data.name || data.subdomain) && userRole !== 'SUPER_ADMIN') {
+        throw new Error("Only Super Admin can change organization name or subdomain");
+    }
+
+    // branding → SUPER_ADMIN + ADMIN
+    if (data.branding && userRole !== 'SUPER_ADMIN' && userRole !== 'ADMIN') {
+        throw new Error("Only Super Admin or Admin can update branding");
+    }
+
+    // Check if subdomain includes words that are not allowed (e.g. "www", "admin", "support")
+    const forbiddenSubdomains = ["www", "admin", "support", "api", "mail", "ftp", "dashboard", "app", "blog", "shop", "help", "status", "dev", "test", "staging", "beta", "alpha", "demo", "portal", "secure", "server", "static", "cdn", "sys", "system", "root", "manager", "manage", "administrator", "moderator", "mod", "owner", "team", "teams", "users", "user", "member", "members", "account", "accounts", "billing", "finance", "pay", "payment", "invoices", "invoice", "subscribe", "subscription", "subscriptions", "auth", "login", "signin", "signup", "register", "oauth", "sso", "support", "helpdesk", "contact", "contacts", "feedback", "forum", "forums", "community", "communities", "news", "press", "media", "legal", "privacy", "terms", "conditions", "policy", "policies", "about", "team", "careers", "jobs", "blog", "blogs", "events", "event", "webinar", "webinars", "docs", "documentation", "apis", "v1", "v2", "v3", "v4", "v5"];
+    if (data.subdomain && forbiddenSubdomains.includes(data.subdomain.toLowerCase())) {
+        throw new Error("Subdomain is not allowed");
     }
 
     // If subdomain is being changed, check if new subdomain is available
@@ -164,4 +201,109 @@ export async function deleteOrganization(subdomain: string, userId: string) {
         .returning({ id: schema.organizations.id });
 
     return deleted;
+}
+
+// ─── MEMBER MANAGEMENT ──────────────────────────────
+
+/**
+ * Get all members of an organization with user details
+ */
+export async function getOrgMembers(orgId: string) {
+    const memberList = await db
+        .select({
+            userId: schema.members.userId,
+            username: schema.users.username,
+            email: schema.users.email,
+            role: schema.members.role,
+            joinedAt: schema.members.joinedAt,
+        })
+        .from(schema.members)
+        .innerJoin(schema.users, eq(schema.members.userId, schema.users.id))
+        .where(eq(schema.members.orgId, orgId));
+
+    return memberList;
+}
+
+/**
+ * Update a member's role (SUPER_ADMIN only)
+ * Cannot change own role, cannot assign SUPER_ADMIN
+ */
+export async function updateMemberRole(
+    orgId: string,
+    targetUserId: string,
+    newRole: 'ADMIN' | 'MANAGER',
+    requesterId: string
+) {
+    // Cannot change own role
+    if (targetUserId === requesterId) {
+        throw new Error("Cannot change your own role");
+    }
+
+    // Find the target member
+    const [targetMember] = await db
+        .select()
+        .from(schema.members)
+        .where(
+            and(
+                eq(schema.members.orgId, orgId),
+                eq(schema.members.userId, targetUserId)
+            )
+        )
+        .limit(1);
+
+    if (!targetMember) {
+        throw new Error("User is not a member of this organization");
+    }
+
+    // Cannot change SUPER_ADMIN's role
+    if (targetMember.role === 'SUPER_ADMIN') {
+        throw new Error("Cannot change Super Admin's role");
+    }
+
+    // Update role
+    const [updated] = await db
+        .update(schema.members)
+        .set({ role: newRole })
+        .where(eq(schema.members.id, targetMember.id))
+        .returning();
+
+    return updated;
+}
+
+/**
+ * Remove a member from an organization (SUPER_ADMIN only)
+ * Cannot remove yourself
+ */
+export async function removeMember(
+    orgId: string,
+    targetUserId: string,
+    requesterId: string
+) {
+    // Cannot remove yourself
+    if (targetUserId === requesterId) {
+        throw new Error("Cannot remove yourself from the organization");
+    }
+
+    // Find the target member
+    const [targetMember] = await db
+        .select()
+        .from(schema.members)
+        .where(
+            and(
+                eq(schema.members.orgId, orgId),
+                eq(schema.members.userId, targetUserId)
+            )
+        )
+        .limit(1);
+
+    if (!targetMember) {
+        throw new Error("User is not a member of this organization");
+    }
+
+    // Delete member
+    await db
+        .delete(schema.members)
+        .where(eq(schema.members.id, targetMember.id));
+
+    return { userId: targetUserId };
 }

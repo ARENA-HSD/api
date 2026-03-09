@@ -1,6 +1,7 @@
 /**
  * Shared authentication utilities for routes
  */
+import { logEvent } from './log.helper';
 
 type CookieJar = Record<string, { value?: string | undefined }> | undefined;
 type AuthPayload = { sub: string; email: string };
@@ -31,7 +32,8 @@ export const requireAuth = async (
     try {
         const payload = (await jwt.verify(token)) as AuthPayload;
         return payload;
-    } catch {
+    } catch (error) {
+        logEvent({ event: 'auth.token.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown' } });
         set.status = 401;
         return null;
     }

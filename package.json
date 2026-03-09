@@ -16,6 +16,7 @@
     "@elysiajs/openapi": "^1.4.14",
     "drizzle-orm": "^0.45.1",
     "elysia": "latest",
+    "elysia-rate-limit": "^4.5.0",
     "ioredis": "^5.9.2",
     "jsonwebtoken": "^9.0.3",
     "postgres": "^3.4.8",

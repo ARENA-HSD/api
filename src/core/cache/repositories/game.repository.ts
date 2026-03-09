@@ -111,6 +111,8 @@ const getAnswersKey = (pin: string) => `game:${pin}:answers`;
 const getLeaderboardKey = (pin: string) => `game:${pin}:leaderboard`;
 const getBannedKey = (pin: string) => `game:${pin}:banned`;
 const getCalculationLockKeyGlobal = (pin: string, questionId: string) => `game:${pin}:calc_lock:${questionId}`; // NEW: Global calculation lock
+const getSessionKey = (pin: string, sessionToken: string) => `game:${pin}:session:${sessionToken}`;
+const getSocketSessionKey = (pin: string, socketId: string) => `game:${pin}:socket_session:${socketId}`;
 
 
 // GAME STATE OPERATIONS
@@ -131,6 +133,7 @@ export async function createGameState(
         currentQuestionIndex: 0,
         mode,
         hostSocketId,
+        hostSessionToken: '',
         totalAnswers: 0,
         quizId,
         totalPlayers: 0,
@@ -155,6 +158,7 @@ export async function getGameState(pin: string): Promise<GameState | null> {
         currentQuestionIndex: parseInt(state.currentQuestionIndex),
         mode: state.mode as any,
         hostSocketId: state.hostSocketId,
+        hostSessionToken: state.hostSessionToken || '',
         totalAnswers: parseInt(state.totalAnswers),
         quizId: state.quizId,
         totalPlayers: parseInt(state.totalPlayers),
@@ -169,6 +173,9 @@ export async function updateGameState(
     pin: string,
     updates: Partial<GameState>
 ): Promise<void> {
+    if (Object.keys(updates).length === 0) {
+        return;
+    }
     await redis.hset(getGameStateKey(pin), updates as any);
 }
 
@@ -201,6 +208,7 @@ export async function addPlayer(
 
     // Add to leaderboard with score 0
     await redis.zadd(getLeaderboardKey(pin), 0, nickname);
+    console.log(`[DEBUG] addPlayer: zadd ${getLeaderboardKey(pin)} score=0 nick=${nickname}`);
 
     // Increment total players
     await redis.hincrby(getGameStateKey(pin), 'totalPlayers', 1);
@@ -215,6 +223,9 @@ export async function removePlayer(pin: string, socketId: string): Promise<void>
 
     if (playerInfo) {
         await redis.zrem(getLeaderboardKey(pin), playerInfo.nickname);
+        console.log(`[DEBUG] removePlayer: zrem ${getLeaderboardKey(pin)} nick=${playerInfo.nickname}`);
+        // Remove from recent players list so LOBBY_UPDATE no longer includes them
+        await redis.lrem(getRecentPlayersKey(pin), 0, playerInfo.nickname);
     }
 
     // Remove from players set
@@ -285,6 +296,10 @@ export async function getPlayerInfo(
         streak: parseInt(info.streak),
         ip: info.ip,
         hasAnswered: info.hasAnswered === 'true',
+        lastPoints: info.lastPoints ? parseInt(info.lastPoints) : 0,
+        sessionToken: info.sessionToken || undefined,
+        disconnected: info.disconnected === 'true',
+        disconnectedAt: info.disconnectedAt ? parseInt(info.disconnectedAt) : undefined,
     };
 }
 
@@ -319,9 +334,10 @@ export async function updatePlayerScore(
 
     // Update leaderboard
     await redis.zadd(getLeaderboardKey(pin), newScore, playerInfo.nickname);
+    console.log(`[DEBUG] updatePlayerScore: zadd ${getLeaderboardKey(pin)} score=${newScore} nick=${playerInfo.nickname}`);
 
     // Mark as answered
-    await redis.hset(playerKey, 'hasAnswered', 'true');
+    await redis.hset(playerKey, 'hasAnswered', 'true', 'lastPoints', scoreToAdd.toString());
 
     return { newScore, newStreak };
 }
@@ -350,7 +366,7 @@ export async function resetAllAnswerFlags(pin: string): Promise<void> {
     const socketIds = await redis.smembers(getPlayersKey(pin));
 
     for (const socketId of socketIds) {
-        await redis.hset(getPlayerInfoKey(pin, socketId), 'hasAnswered', 'false');
+        await redis.hset(getPlayerInfoKey(pin, socketId), 'hasAnswered', 'false', 'lastPoints', '0');
     }
 
     // Reset total answers
@@ -375,6 +391,7 @@ export async function getLeaderboard(
         limit - 1,
         'WITHSCORES'
     );
+    console.log(`[DEBUG] getLeaderboard: key=${getLeaderboardKey(pin)} results=`, JSON.stringify(results));
 
     const leaderboard: LeaderboardEntry[] = [];
 
@@ -399,6 +416,10 @@ export async function loadAnswerKey(
     pin: string,
     questions: QuestionData[]
 ): Promise<void> {
+    if (questions.length === 0) {
+        return;
+    }
+
     const answerKey: Record<string, number> = {};
 
     for (const question of questions) {
@@ -477,6 +498,31 @@ export async function getAllPlayerSockets(pin: string): Promise<string[]> {
     return await redis.smembers(getPlayersKey(pin));
 }
 
+/**
+ * Finds a player's socketId by their nickname
+ */
+export async function findSocketByNickname(pin: string, nickname: string): Promise<string | null> {
+    const socketIds = await getAllPlayerSockets(pin);
+    for (const sid of socketIds) {
+        const info = await getPlayerInfo(pin, sid);
+        if (info && info.nickname === nickname) return sid;
+    }
+    return null;
+}
+
+/**
+ * Counts how many players have `hasAnswered` === true for current question
+ */
+export async function countAnsweredPlayers(pin: string): Promise<number> {
+    const socketIds = await redis.smembers(getPlayersKey(pin));
+    let count = 0;
+    for (const sid of socketIds) {
+        const info = await getPlayerInfo(pin, sid);
+        if (info && info.hasAnswered) count++;
+    }
+    return count;
+}
+
 
 // CALCULATION LOCK OPERATIONS
 
@@ -496,6 +542,19 @@ export async function acquireCalculationLock(
     const lockKey = getCalculationLockKey(pin, questionId, socketId);
     // SET with NX (only if not exists) and EX (expiration in seconds)
     const result = await redis.set(lockKey, '1', 'EX', 60, 'NX');
+    return result === 'OK';
+}
+
+/**
+ * Atomik lock: showQuestionEnd ayni soru icin sadece bir kez calisir
+ * Timer ve all-players-answered ayni anda tetiklerse ikincisi engellenir
+ */
+export async function acquireQuestionEndLock(
+    pin: string,
+    questionIndex: number
+): Promise<boolean> {
+    const lockKey = `game:${pin}:question_end_lock:${questionIndex}`;
+    const result = await redis.set(lockKey, '1', 'EX', 120, 'NX');
     return result === 'OK';
 }
 
@@ -527,6 +586,10 @@ export async function saveRankSnapshot(pin: string): Promise<void> {
         -1,
         'WITHSCORES'
     );
+
+    if (leaderboard.length === 0) {
+        return;
+    }
 
     const snapshot: Record<string, number> = {};
     let rank = 1;
@@ -664,15 +727,15 @@ export async function getAnswerStats(pin: string, questionId: string): Promise<R
 /**
  * Gets players with highest streaks
  */
-export async function getStreakLeaders(pin: string, limit: number = 5): Promise<Array<{ nick: string; streak: number }>> {
+export async function getStreakLeaders(pin: string, limit: number = 5): Promise<Array<{ nickname: string; streak: number }>> {
     const socketIds = await redis.smembers(getPlayersKey(pin));
-    const streaks: Array<{ nick: string; streak: number }> = [];
+    const streaks: Array<{ nickname: string; streak: number }> = [];
 
     for (const socketId of socketIds) {
         const playerInfo = await getPlayerInfo(pin, socketId);
         if (playerInfo && playerInfo.streak > 0) {
             streaks.push({
-                nick: playerInfo.nickname,
+                nickname: playerInfo.nickname,
                 streak: playerInfo.streak,
             });
         }
@@ -725,4 +788,150 @@ export async function waitForCalculationLock(pin: string, questionId: string, ti
         // Wait 100ms before checking again
         await new Promise(resolve => setTimeout(resolve, 100));
     }
+}
+
+
+// SESSION TOKEN OPERATIONS (RECONNECT SYSTEM)
+
+
+const SESSION_TTL = 3000; // 50 minutes
+
+/**
+ * Creates a session mapping: sessionToken <-> socketId
+ */
+export async function createSession(pin: string, socketId: string, sessionToken: string): Promise<void> {
+    await redis.set(getSessionKey(pin, sessionToken), socketId, 'EX', SESSION_TTL);
+    await redis.set(getSocketSessionKey(pin, socketId), sessionToken, 'EX', SESSION_TTL);
+}
+
+/**
+ * Gets the socketId associated with a sessionToken
+ */
+export async function getSocketBySession(pin: string, sessionToken: string): Promise<string | null> {
+    return await redis.get(getSessionKey(pin, sessionToken));
+}
+
+/**
+ * Gets the sessionToken associated with a socketId
+ */
+export async function getSessionBySocket(pin: string, socketId: string): Promise<string | null> {
+    return await redis.get(getSocketSessionKey(pin, socketId));
+}
+
+/**
+ * Updates session mapping to point to a new socketId (on reconnect)
+ */
+export async function updateSessionSocket(pin: string, sessionToken: string, oldSocketId: string, newSocketId: string): Promise<void> {
+    // Update session -> socketId
+    await redis.set(getSessionKey(pin, sessionToken), newSocketId, 'EX', SESSION_TTL);
+    // Remove old reverse mapping
+    await redis.del(getSocketSessionKey(pin, oldSocketId));
+    // Create new reverse mapping
+    await redis.set(getSocketSessionKey(pin, newSocketId), sessionToken, 'EX', SESSION_TTL);
+}
+
+/**
+ * Refreshes session TTL (call on reconnect)
+ */
+export async function refreshSessionTTL(pin: string, sessionToken: string, socketId: string): Promise<void> {
+    await redis.expire(getSessionKey(pin, sessionToken), SESSION_TTL);
+    await redis.expire(getSocketSessionKey(pin, socketId), SESSION_TTL);
+}
+
+/**
+ * Removes session mapping (on full cleanup)
+ */
+export async function removeSession(pin: string, sessionToken: string, socketId: string): Promise<void> {
+    await redis.del(getSessionKey(pin, sessionToken));
+    await redis.del(getSocketSessionKey(pin, socketId));
+}
+
+
+// PLAYER DATA MIGRATION (RECONNECT SYSTEM)
+
+
+/**
+ * Migrates player data from old socketId to new socketId.
+ * - Renames player info hash key
+ * - Updates players set (SREM old, SADD new)
+ * - Migrates answer tracking keys for all answered questions
+ */
+export async function migratePlayerSocket(
+    pin: string,
+    oldSocketId: string,
+    newSocketId: string,
+    totalQuestions: number,
+    quizId: string
+): Promise<void> {
+    const oldKey = getPlayerInfoKey(pin, oldSocketId);
+    const newKey = getPlayerInfoKey(pin, newSocketId);
+
+    // 1. Copy player info from old key to new key (RENAME would fail if old doesn't exist)
+    const playerData = await redis.hgetall(oldKey);
+    if (playerData && Object.keys(playerData).length > 0) {
+        await redis.hset(newKey, playerData);
+        await redis.del(oldKey);
+    }
+
+    // 2. Update players set
+    await redis.srem(getPlayersKey(pin), oldSocketId);
+    await redis.sadd(getPlayersKey(pin), newSocketId);
+
+    // 3. Migrate answer tracking keys
+    // We need to check all possible question IDs — scan for pattern
+    const pattern = `game:${pin}:answer:*:${oldSocketId}`;
+    let cursor = '0';
+    do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', 100);
+        cursor = nextCursor;
+        for (const key of keys) {
+            const value = await redis.get(key);
+            // Extract questionId from key: game:PIN:answer:QUESTION_ID:SOCKET_ID
+            const parts = key.split(':');
+            const questionId = parts[3];
+            if (value !== null) {
+                await redis.set(getPlayerAnswerKey(pin, questionId, newSocketId), value);
+                await redis.del(key);
+            }
+        }
+    } while (cursor !== '0');
+
+    // 4. Migrate calculation lock keys
+    const lockPattern = `game:${pin}:lock:*:${oldSocketId}`;
+    cursor = '0';
+    do {
+        const [nextCursor, keys] = await redis.scan(cursor, 'MATCH', lockPattern, 'COUNT', 100);
+        cursor = nextCursor;
+        for (const key of keys) {
+            const ttl = await redis.ttl(key);
+            if (ttl > 0) {
+                const parts = key.split(':');
+                const questionId = parts[3];
+                const newLockKey = `game:${pin}:lock:${questionId}:${newSocketId}`;
+                await redis.set(newLockKey, '1', 'EX', ttl);
+            }
+            await redis.del(key);
+        }
+    } while (cursor !== '0');
+}
+
+
+// DISCONNECT GRACE PERIOD (RECONNECT SYSTEM)
+
+
+/**
+ * Marks a player as disconnected (instead of removing them immediately)
+ */
+export async function markPlayerDisconnected(pin: string, socketId: string): Promise<void> {
+    const playerKey = getPlayerInfoKey(pin, socketId);
+    await redis.hset(playerKey, 'disconnected', 'true', 'disconnectedAt', Date.now().toString());
+}
+
+/**
+ * Marks a player as reconnected (clears disconnected flag)
+ */
+export async function markPlayerReconnected(pin: string, socketId: string): Promise<void> {
+    const playerKey = getPlayerInfoKey(pin, socketId);
+    await redis.hset(playerKey, 'disconnected', 'false');
+    await redis.hdel(playerKey, 'disconnectedAt');
 }

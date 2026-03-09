@@ -9,10 +9,15 @@ import { questionsRoutes } from "./modules/questions/questions.controller";
 import { quizzesRoutes } from "./modules/quizzes/quizzes.controller";
 import { loginRoutes } from "./modules/auth/auth.controller";
 import { invitationsRoutes } from "./modules/invitations/invitations.controller";
+import { cleanupExpiredInvitations } from "./modules/invitations/invitations.service";
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
 import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
+import { logEvent } from "./shared/helpers/log.helper";
+import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
+import { rateLimit } from 'elysia-rate-limit';
+import { handleSetNickname } from './modules/games/games.service';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -54,7 +59,14 @@ for (const [key, defaultValue] of Object.entries(optionalEnvVars)) {
 
 const redisClient = new RedisClient();
 
-const app = new Elysia()
+// Track active websocket connections for server-level publishing
+const activeSockets = new Set<any>();
+
+const app = new Elysia({
+  serve: {
+    maxRequestBodySize: 1024 * 100, // 100KB payload limiti
+  },
+})
   .derive(() => {
     return {
       startTime: process.hrtime()
@@ -106,13 +118,26 @@ const app = new Elysia()
 
     },
   }))
-  .use(usersRoutes)
-  .use(loginRoutes)
-  .use(orgRoutes)
-  .use(quizzesRoutes)
-  .use(questionsRoutes)
-  .use(invitationsRoutes)
-  .use(gamesRoutes)
+  .use(
+    new Elysia()
+      .use(loginRoutes)
+      .use(usersRoutes)
+      .use(quizzesRoutes)
+      .use(questionsRoutes)
+      .use(invitationsRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+      .use(rateLimit({
+        duration: 60 * 1000, // 60 seconds
+        max: 50, // 50 requests per minute
+      }))
+      .use(orgRoutes)
+      .use(gamesRoutes)
+      .post('/rate-limit', () => {
+        return 'Rate limit test';
+      })
+  )
   .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
   .get("/db-health", async () => {
     const timestamp = new Date().toISOString();
@@ -124,6 +149,7 @@ const app = new Elysia()
     } catch (error) {
       databaseStatus = "disconnected";
       databaseError = error instanceof Error ? error.message : "Unknown error";
+      logEvent({ event: 'db.connection.failed', level: 'CRITICAL', source: 'system', data: { error: databaseError } });
     }
 
     let redisStatus: "connected" | "disconnected" | "error" = "connected";
@@ -140,6 +166,7 @@ const app = new Elysia()
     } catch (error) {
       redisStatus = "disconnected";
       redisError = error instanceof Error ? error.message : "Unknown error";
+      logEvent({ event: 'redis.connection.failed', level: 'CRITICAL', source: 'system', data: { error: redisError } });
     }
 
     const status = databaseStatus === "connected" && redisStatus === "connected" ? "healthy" : "error";
@@ -158,14 +185,10 @@ const app = new Elysia()
   .ws('/ws', {
     async open(ws) {
       console.log('WebSocket connected:', ws.id);
-      // Set broadcaster publisher once for service-layer broadcasting
-      try {
-        const { setPublisher } = await import('./core/pubsub/broadcaster');
-        // bind ws.publish to ensure correct `this`
-        setPublisher((ws.publish as any).bind(ws));
-      } catch (err) {
-        console.error('Failed to set publisher', err);
-      }
+      // Add to active sockets
+      activeSockets.add(ws);
+      // Track socket ID for liveness checks (synchronous — no await)
+      trackSocketOpen(ws.id);
     },
 
     async message(ws, message: any) {
@@ -177,6 +200,12 @@ const app = new Elysia()
         switch (type) {
           case 'JOIN_ROOM':
             await GameService.handleJoinRoom(ws, data);
+            break;
+          case 'SET_NICKNAME':
+            await handleSetNickname(ws, data);
+            break;
+          case 'RECONNECT':
+            await GameService.handleReconnect(ws, data);
             break;
           case 'KICK_PLAYER':
             await GameService.handleKickPlayer(ws, data);
@@ -194,6 +223,7 @@ const app = new Elysia()
             await GameService.handleNextQuestion(ws, data);
             break;
           default:
+            logEvent({ event: 'ws.unknown_event', level: 'WARNING', source: 'code', data: { type, socketId: ws.id } });
             ws.send(JSON.stringify({
               type: 'ERROR',
               data: { message: 'Unknown event type' },
@@ -201,6 +231,7 @@ const app = new Elysia()
         }
       } catch (error) {
         console.error('WebSocket message error:', error);
+        logEvent({ event: 'ws.parse.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown', socketId: ws.id } });
         ws.send(JSON.stringify({
           type: 'ERROR',
           data: { message: 'Internal server error' },
@@ -214,47 +245,84 @@ const app = new Elysia()
 
       console.log('WebSocket disconnected:', socketId);
 
+      // Remove from active sockets so we don't publish to closed sockets
+      try {
+        activeSockets.delete(ws);
+        // Track socket close synchronously — no await, no race
+        trackSocketClose(socketId);
+      } catch (err) {
+        // ignore
+      }
+
       // ws.data contains pin if player joined a game
       if (metadata?.pin) {
         const pin = metadata.pin;
 
         try {
-          // Cleanup disconnected player
-          const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+          const gameState = await GamesHelper.getGameState(pin);
+          if (!gameState) return;
 
-          if (result.success && result.shouldBroadcast && result.state) {
-            // Broadcast based on game status
-            if (result.state.status === 'LOBBY') {
-              // LOBBY: Update player list
-              const players = await GamesHelper.getAllPlayerSockets(pin);
-              const playerList: { socketId: string; nickname: string }[] = [];
-              for (const sid of players) {
-                const info = await GamesHelper.getPlayerInfo(pin, sid);
-                if (info) {
-                  playerList.push({ socketId: sid, nickname: info.nickname });
-                }
-              }
+          const isHost = gameState.hostSocketId === socketId;
+          const sessionToken = isHost
+            ? gameState.hostSessionToken
+            : await GamesHelper.getSessionBySocket(pin, socketId);
 
+          if (isHost) {
+            // Clear hostSocketId so host can reconnect via RECONNECT or JOIN_ROOM
+            await GamesHelper.updateGameState(pin, { hostSocketId: '' });
+            console.log(`Host disconnected, cleared hostSocketId for pin=${pin}`);
+
+            // Start grace period for host (don't wipe hostSessionToken yet)
+            if (sessionToken) {
+              GameService.startDisconnectGracePeriod(pin, socketId, sessionToken);
+            }
+            return;
+          }
+
+          // PLAYER disconnect
+          const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
+          if (!playerInfo) return;
+
+          if (gameState.status === 'ACTIVE' && sessionToken) {
+            // ACTIVE game: don't remove player — mark as disconnected, start grace period
+            await GamesHelper.markPlayerDisconnected(pin, socketId);
+            GameService.startDisconnectGracePeriod(pin, socketId, sessionToken);
+
+            console.log(`Player disconnected during active game ${pin}: ${playerInfo.nickname} (grace period started)`);
+            logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: playerInfo.nickname } });
+
+            // Notify host
+            try {
+              const { publish } = await import('./core/pubsub/broadcaster');
+              await publish(`game:${pin}:host`, JSON.stringify({
+                type: 'PLAYER_DISCONNECTED',
+                data: { nickname: playerInfo.nickname },
+              }));
+            } catch (err) {
+              console.error('Failed to publish PLAYER_DISCONNECTED', err);
+            }
+          } else {
+            // LOBBY or FINISHED or no session: immediate cleanup
+            const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
+            if (sessionToken) {
+              await GamesHelper.removeSession(pin, sessionToken, socketId);
+            }
+
+            if (result.success && result.shouldBroadcast && result.state?.status === 'LOBBY') {
               const recentPlayers = await GamesHelper.getRecentPlayers(pin, 28);
-
-              // Broadcast LOBBY_UPDATE
               try {
                 const { publish } = await import('./core/pubsub/broadcaster');
                 const updatedState = await GamesHelper.getGameState(pin);
-                await publish(`game:${pin}`, JSON.stringify({
+                await publish(`game:${pin}:host`, JSON.stringify({
                   type: 'LOBBY_UPDATE',
                   data: {
-                    players: playerList,
-                    recentPlayers,
-                    totalPlayers: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1)
+                    count: updatedState ? updatedState.totalPlayers : (result.state.totalPlayers - 1),
+                    recentPlayers
                   }
                 }));
               } catch (err) {
                 console.error('Failed to publish LOBBY_UPDATE on disconnect', err);
               }
-            } else if (result.state.status === 'ACTIVE' && result.playerInfo) {
-              // ACTIVE: Just log, game continues
-              console.log(`Player left active game ${pin}: ${result.playerInfo.nickname}`);
             }
           }
         } catch (error) {
@@ -264,9 +332,9 @@ const app = new Elysia()
     },
   })
   .use(cors({
-    origin: ['http://localhost:5173', 'http://localhost:5174'],
+    origin: [/^https?:\/\/(.*?\.)?localhost:\d+$/, "https://efe.efehidir.tr"],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
     credentials: true
   }))
   ;
@@ -274,6 +342,22 @@ const app = new Elysia()
 // Expose server instance for service-level publishes used in games.service
 app.listen(3000);
 
+import('./core/pubsub/broadcaster').then(({ setPublisher }) => {
+  setPublisher(async (channel: string, message: string) => {
+    app.server?.publish(channel, message);
+  });
+}).catch(err => {
+  console.error('Failed to set publisher', err);
+  logEvent({ event: 'ws.publisher.error', level: 'CRITICAL', source: 'system', data: { error: err instanceof Error ? err.message : 'unknown' } });
+});
+
 console.log(
   `🦊 Elysia is running at ${app.server?.hostname}:${app.server?.port}`
 );
+
+// Her saat suresi dolmus davetleri temizle
+setInterval(async () => {
+  const count = await cleanupExpiredInvitations();
+  if (count > 0) console.log(`🧹 ${count} expired invitation(s) cleaned up`);
+}, 60 * 60 * 1000);
+cleanupExpiredInvitations();

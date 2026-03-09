@@ -8,6 +8,7 @@ import bearer from '@elysiajs/bearer';
 import jwtPlugin from '@elysiajs/jwt';
 import * as quizService from './quizzes.service';
 import { jwtConfig } from '../../middleware/auth.middleware';
+import { logEvent } from '../../shared/helpers/log.helper';
 
 
 // ELYSIA ROUTES
@@ -52,11 +53,15 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
         );
 
         set.status = result.status;
+        if (result.status === 403) {
+          logEvent({ event: 'quiz.access.denied', level: 'WARNING', source: 'code', data: { orgDomain: params.orgDomain } });
+        }
         return result;
-        
+
       } catch (error) {
         console.error('Create quiz error:', error);
         set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -127,6 +132,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('List quizzes error:', error);
         set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -189,6 +195,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Get quiz error:', error);
         set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -252,6 +259,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Update quiz error:', error);
         set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -318,6 +326,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Delete quiz error:', error);
         set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
         return { success: false, message: 'Internal server error' };
       }
     },

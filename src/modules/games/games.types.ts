@@ -14,6 +14,7 @@ export interface GameState {
     currentQuestionIndex: number;
     mode: GameMode;
     hostSocketId: string;
+    hostSessionToken: string;
     totalAnswers: number;
     quizId: string;
     totalPlayers: number;
@@ -26,6 +27,10 @@ export interface PlayerInfo {
     streak: number;
     ip: string;
     hasAnswered: boolean;
+    lastPoints?: number;
+    sessionToken?: string;
+    disconnected?: boolean;
+    disconnectedAt?: number;
 }
 
 export interface LeaderboardEntry {
@@ -47,6 +52,7 @@ export interface CreateGameResponse {
     gameId: string;
     pin: string;
     mode: GameMode;
+    message?: string;
 }
 
 export interface GameSummaryResponse {
@@ -55,6 +61,7 @@ export interface GameSummaryResponse {
     totalPlayers: number;
     winner?: string;
     finalScores?: LeaderboardEntry[];
+    message?: string;
 }
 
 
@@ -63,6 +70,8 @@ export interface GameSummaryResponse {
 
 export type WebSocketEventType =
     | 'JOIN_ROOM'
+    | 'SET_NICKNAME'
+    | 'NEED_NICKNAME'
     | 'JOIN_SUCCESS'
     | 'LOBBY_UPDATE'
     | 'KICK_PLAYER'
@@ -78,11 +87,25 @@ export type WebSocketEventType =
     | 'LEADERBOARD_RESULT'
     | 'NEXT_QUESTION'
     | 'GAME_OVER'
+    | 'RECONNECT'
+    | 'RECONNECT_SUCCESS'
+    | 'PLAYER_DISCONNECTED'
+    | 'PLAYER_RECONNECTED'
     | 'ERROR';
 
 // Client -> Server Events
 export interface JoinRoomEvent {
     type: 'JOIN_ROOM';
+    data: {
+        pin: string;
+        // If provided and valid, the server auto-reconnects the player.
+        // If missing or invalid, the server responds with NEED_NICKNAME.
+        sessionToken?: string;
+    };
+}
+
+export interface SetNicknameEvent {
+    type: 'SET_NICKNAME';
     data: {
         pin: string;
         nickname: string;
@@ -92,7 +115,7 @@ export interface JoinRoomEvent {
 export interface KickPlayerEvent {
     type: 'KICK_PLAYER';
     data: {
-        socketId: string;
+        nickname: string;
         ban: boolean;
     };
 }
@@ -107,7 +130,6 @@ export interface StartGameEvent {
 export interface SubmitAnswerEvent {
     type: 'SUBMIT_ANSWER';
     data: {
-        questionId: string;
         answerIndex: number;
     };
 }
@@ -245,14 +267,65 @@ export interface ErrorEvent {
     };
 }
 
+// Server -> Client: Prompts the client to ask the user for a nickname
+export interface NeedNicknameEvent {
+    type: 'NEED_NICKNAME';
+    data: {
+        message: string;
+    };
+}
+
+// Client -> Server: Reconnect Event
+export interface ReconnectEvent {
+    type: 'RECONNECT';
+    data: {
+        pin: string;
+        sessionToken: string;
+    };
+}
+
+// Server -> Client: Reconnect Success
+export interface ReconnectSuccessEvent {
+    type: 'RECONNECT_SUCCESS';
+    data: {
+        nickname: string;
+        gameStatus: GameStatus;
+        currentQuestionIndex: number;
+        score: number;
+        streak: number;
+        hasAnswered: boolean;
+        totalQuestions: number;
+        isHost: boolean;
+        mode: GameMode;
+        remainingTime?: number;
+    };
+}
+
+export interface PlayerDisconnectedEvent {
+    type: 'PLAYER_DISCONNECTED';
+    data: {
+        nickname: string;
+    };
+}
+
+export interface PlayerReconnectedEvent {
+    type: 'PLAYER_RECONNECTED';
+    data: {
+        nickname: string;
+    };
+}
+
 // Union type for all events
 export type WebSocketEvent =
     | JoinRoomEvent
+    | SetNicknameEvent
+    | NeedNicknameEvent
     | KickPlayerEvent
     | StartGameEvent
     | SubmitAnswerEvent
     | ShowLeaderboardEvent
     | NextQuestionEvent
+    | ReconnectEvent
     | JoinSuccessEvent
     | LobbyUpdateEvent
     | PlayerJoinedEvent
@@ -264,6 +337,9 @@ export type WebSocketEvent =
     | QuestionEndPlayerEvent
     | LeaderboardResultHostEvent
     | LeaderboardResultPlayerEvent
+    | ReconnectSuccessEvent
+    | PlayerDisconnectedEvent
+    | PlayerReconnectedEvent
     | GameOverEvent
     | ErrorEvent;
 
