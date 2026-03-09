@@ -412,54 +412,6 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
             type: 'LOBBY_UPDATE',
             data: { count: players.length, recentPlayers },
         }));
-    } else if (phase === 'QUESTION_START') {
-        // Re-send QUESTION_START with current question data
-        const quiz = await db.query.quizzes.findFirst({
-            where: eq(schema.quizzes.id, state.quizId),
-            with: {
-                questions: {
-                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
-                },
-            },
-        });
-        if (quiz && quiz.questions[state.currentQuestionIndex]) {
-            const question = quiz.questions[state.currentQuestionIndex];
-            const questionData = {
-                id: question.id,
-                text: question.text,
-                mediaUrl: question.mediaUrl || undefined,
-                timeLimit: question.timeLimit,
-                points: question.points || 1000,
-                correctIndex: question.correctIndex,
-                orderIndex: question.orderIndex,
-                options: question.options as any,
-            };
-            const filteredQuestion = filterQuestionByMode(questionData, 'PERSONAL');
-
-            // Calculate remaining time
-            const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
-            let remainingTime: number | undefined;
-            if (questionStartTime) {
-                const elapsed = (Date.now() - questionStartTime) / 1000;
-                remainingTime = Math.max(0, question.timeLimit - elapsed);
-            }
-
-            // Send answer stats
-            const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
-            const currentState = await GamesHelper.getGameState(pin);
-            ws.send(JSON.stringify({
-                type: 'ANSWER_STAT_UPDATE',
-                data: {
-                    answeredCount,
-                    totalPlayers: currentState ? currentState.totalPlayers : 0,
-                },
-            }));
-
-            ws.send(JSON.stringify({
-                type: 'QUESTION_START',
-                data: { ...filteredQuestion, mode: 'PERSONAL', remainingTime },
-            }));
-        }
     } else if (phase === 'QUESTION_END') {
         // Re-send QUESTION_END
         const quiz = await db.query.quizzes.findFirst({
