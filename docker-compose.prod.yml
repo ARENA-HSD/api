@@ -26,11 +26,6 @@ services:
         condition: service_healthy
     networks:
       - arena-network
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-backend-prod,env=production
 
   # --- POSTGRES (PROD) ---
   postgres:
@@ -51,13 +46,6 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-postgres-prod,env=production
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
-
     # --- REDIS (PROD) ---
   redis:
     image: redis:alpine
@@ -73,12 +61,6 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-redis-prod,env=production
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
 
   nginx:
     image: nginx:latest
@@ -92,13 +74,6 @@ services:
       - ./config/nginx/private.cert.pem:/etc/nginx/ssl/private.cert.pem:ro
     networks:
       - arena-network
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-nginx-prod,env=production
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
-
     # --- MONITORING (PROD) ---
   prometheus:
     image: prom/prometheus:latest
@@ -121,11 +96,6 @@ services:
     restart: unless-stopped
     networks:
       - arena-network
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-blackbox,env=production
 
   loki:
     image: grafana/loki:latest
