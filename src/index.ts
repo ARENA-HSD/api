@@ -125,18 +125,30 @@ const app = new Elysia({
       .use(quizzesRoutes)
       .use(questionsRoutes)
       .use(invitationsRoutes)
-      .post('/rate-limit', () => {
-        return 'Rate limit test';
-      })
-      .use(rateLimit({
-        duration: 60 * 1000, // 60 seconds
-        max: 50, // 50 requests per minute
-      }))
       .use(orgRoutes)
       .use(gamesRoutes)
       .post('/rate-limit', () => {
         return 'Rate limit test';
       })
+      .use(rateLimit({
+        generator: (request, server) => {
+        // 1. Öncelikli olarak Cloudflare'in ilettiği gerçek kullanıcı IP'sini al
+        const cfIp = request.headers.get('cf-connecting-ip');
+        if (cfIp) return cfIp;
+
+        // 2. Fallback olarak genel proxy başlığını kontrol et (isteğe bağlı)
+        const forwardedFor = request.headers.get('x-forwarded-for');
+        if (forwardedFor) {
+          // X-Forwarded-For virgülle ayrılmış birden fazla IP içerebilir, ilkini (orijinal client) alıyoruz
+          return forwardedFor.split(',')[0].trim();
+        }
+
+        // 3. Herhangi bir header yoksa (örn. geliştirme ortamındaysan) varsayılan Bun IP metoduna düş
+        return server?.requestIP(request)?.address ?? '127.0.0.1';
+        },
+        duration: 60 * 1000, // 60 seconds
+        max: 50, // 50 requests per minute
+      }))
   )
   .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
   .get("/db-health", async () => {
