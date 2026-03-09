@@ -108,6 +108,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data_prod:/prometheus
     networks:
       - arena-network
     logging:
@@ -134,6 +135,7 @@ services:
     restart: unless-stopped
     volumes:
       - ./config/loki.yml:/etc/loki/local-config.yaml
+      - loki_data_prod:/loki
     networks:
       - arena-network
     logging:
@@ -149,6 +151,7 @@ services:
     volumes:
       - ./config/promtail.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock
+      - promtail_data_prod:/var/lib/promtail
     networks:
       - arena-network
     logging:
@@ -166,6 +169,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning
+      - grafana_data_prod:/var/lib/grafana
     networks:
       - arena-network
     logging:
@@ -181,3 +185,7 @@ networks:
 volumes:
   postgres_data_prod:
   redis_data_prod:
+  prometheus_data_prod:
+  loki_data_prod:
+  grafana_data_prod:
+  promtail_data_prod:
