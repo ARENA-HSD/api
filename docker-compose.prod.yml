@@ -30,6 +30,11 @@ services:
         condition: service_healthy
     networks:
       - arena-network
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-backend-prod,env=production
 
   # --- POSTGRES (PROD) ---
   postgres:
@@ -50,6 +55,11 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-postgres-prod,env=production
     # --- REDIS (PROD) ---
   redis:
     image: redis:alpine
@@ -65,6 +75,11 @@ services:
       interval: 5s
       timeout: 3s
       retries: 5
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-redis-prod,env=production
 
   nginx:
     image: nginx:latest
@@ -78,7 +93,13 @@ services:
       - ./config/nginx/private.cert.pem:/etc/nginx/ssl/private.cert.pem
     networks:
       - arena-network
-    # --- MONITORING (PROD) ---
+    logging:
+      driver: loki
+      options:
+        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
+        loki-external-labels: job=arena-nginx-prod,env=production
+
+  # --- MONITORING (PROD) ---
   prometheus:
     image: prom/prometheus:latest
     container_name: arena-prometheus
@@ -105,6 +126,8 @@ services:
     image: grafana/loki:latest
     container_name: arena-loki
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:3100:3100"
     volumes:
       - ./config/loki.yml:/etc/loki/local-config.yaml
       - loki_data_prod:/loki

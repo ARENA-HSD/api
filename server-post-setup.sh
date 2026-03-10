@@ -23,6 +23,10 @@ echo ""
 echo -e "\n--- Telegram Log ---"
 read -p "TELEGRAM_BOT_TOKEN: " TELEGRAM_BOT_TOKEN
 read -p "TELEGRAM_CHAT_ID: " TELEGRAM_CHAT_ID
+read -p "TELEGRAM_WARNING_TOPIC_ID: " TELEGRAM_WARNING_TOPIC_ID
+read -p "TELEGRAM_INFO_TOPIC_ID: " TELEGRAM_INFO_TOPIC_ID
+read -p "TELEGRAM_ERROR_TOPIC_ID: " TELEGRAM_ERROR_TOPIC_ID
+read -p "TELEGRAM_CRITICAL_TOPIC_ID: " TELEGRAM_CRITICAL_TOPIC_ID
 
 cat <<EOF > .env
 # --- Veritabanı Ayarları ---
@@ -46,15 +50,29 @@ GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
 # --- TELEGRAM ---
 TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
 TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
+TELEGRAM_WARNING_TOPIC_ID=${TELEGRAM_WARNING_TOPIC_ID}
+TELEGRAM_INFO_TOPIC_ID=${TELEGRAM_INFO_TOPIC_ID}
+TELEGRAM_ERROR_TOPIC_ID=${TELEGRAM_ERROR_TOPIC_ID}
+TELEGRAM_CRITICAL_TOPIC_ID=${TELEGRAM_CRITICAL_TOPIC_ID}
 EOF
 
-echo "Created .env file"
+echo "Created api .env file"
 
-docker compose -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.prod.yml up -d --build
 echo "Success. API containers are running."
 
+read -p "VITE_API_URL [example: http://localhost:3000]: " VITE_API_URL
+read -p "VITE_BASE_DOMAIN [example: api.localhost.tr]: " VITE_BASE_DOMAIN
+
+cat <<EOF > ../frontend/.env
+# --- Bağlantı Linkleri ---
+VITE_API_URL=${VITE_API_URL}
+VITE_API_PORT=5173
+VITE_BASE_DOMAIN=${VITE_BASE_DOMAIN}
+EOF
+
 cd ../frontend
-docker compose up -d
+docker compose -f docker-compose.prod.yml up -d --buiild
 echo "Success. Frontend container is running."
 
 cd ../
