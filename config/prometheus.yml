@@ -4,7 +4,6 @@ global:
   scrape_timeout: 10s
   external_labels:
     region: 'local'
-    environment: 'prod'
 
 scrape_configs:
   - job_name: 'arena-api'
@@ -35,11 +34,13 @@ scrape_configs:
         - http://frontend:80
         labels:
           module: http_2xx
+          env: 'prod'
       - targets:
         - postgres:5432
         - redis:6379
         labels:
           module: tcp_connect
+          env: 'prod'
     relabel_configs:
       - source_labels: [module]
         target_label: __param_module
