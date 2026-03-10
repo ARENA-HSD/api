@@ -18,84 +18,8 @@
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
-  "id": 1,
   "links": [],
   "panels": [
-    {
-      "title": "API Health Status",
-      "type": "stat",
-      "datasource": {
-        "type": "prometheus",
-        "uid": "Prometheus"
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 16
-      },
-      "id": 999,
-      "pluginVersion": "10.0.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "Prometheus"
-          },
-          "expr": "probe_success{job=\"blackbox\"}",
-          "refId": "A"
-        }
-      ],
-      "options": {
-        "colorMode": "background",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "options": {
-                "0": {
-                  "color": "dark-red",
-                  "index": 1,
-                  "text": "DOWN"
-                },
-                "1": {
-                  "color": "dark-green",
-                  "index": 0,
-                  "text": "UP"
-                }
-              },
-              "type": "value"
-            }
-          ],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "red",
-                "value": null
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
-          }
-        },
-        "overrides": []
-      }
-    },
     {
       "datasource": {
         "type": "prometheus",
@@ -178,7 +102,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -186,7 +110,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(process_cpu_seconds_total{env=\"dev\"}[1m]))",
+          "expr": "sum(rate(process_cpu_seconds_total{env=\"prod\"}[1m]))",
           "legendFormat": "CPU Core Usage",
           "range": true,
           "refId": "A"
@@ -278,11 +202,11 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(sum(process_resident_memory_bytes{env=\"dev\"}) / (1024*1024)) / 2",
+          "expr": "sum(process_resident_memory_bytes{env=\"prod\", job=\"arena-api\"}) / (1024*1024)",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -372,7 +296,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -471,11 +395,11 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "nodejs_eventloop_lag_seconds{env=\"dev\"}",
+          "expr": "nodejs_eventloop_lag_seconds{env=\"prod\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -565,7 +489,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -663,7 +587,7 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -761,11 +685,11 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(nodejs_gc_duration_seconds_sum{env=\"dev\"}[1m])",
+          "expr": "rate(nodejs_gc_duration_seconds_sum{env=\"prod\"}[1m])",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -855,11 +779,11 @@
           "sort": "none"
         }
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "editorMode": "code",
-          "expr": "active_requests{env=\"dev\"}",
+          "expr": "active_requests{env=\"prod\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -867,6 +791,85 @@
       ],
       "title": "Active Request Count",
       "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [
+            {
+              "options": {
+                "0": {
+                  "color": "dark-red",
+                  "index": 1,
+                  "text": "DOWN"
+                },
+                "1": {
+                  "color": "dark-green",
+                  "index": 0,
+                  "text": "UP"
+                }
+              },
+              "type": "value"
+            }
+          ],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 16
+      },
+      "id": 999,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "expr": "probe_success{job=\"blackbox\", env=~\"prod|dev\"}",
+          "legendFormat": "{{instance}}",
+          "refId": "A"
+        }
+      ],
+      "title": "Services Health Status",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -894,9 +897,10 @@
         "showLabels": false,
         "showTime": true,
         "sortOrder": "Descending",
+        "unwrappedColumns": false,
         "wrapLogMessage": false
       },
-      "pluginVersion": "12.3.3",
+      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -905,7 +909,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-backend-dev\"}",
+          "expr": "{container=\"arena-backend-prod\"}",
           "queryType": "range",
           "refId": "A"
         },
@@ -916,8 +920,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-postgres-dev\"}",
-          "hide": false,
+          "expr": "{container=\"arena-postgres-prod\"}",
           "queryType": "range",
           "refId": "B"
         },
@@ -928,8 +931,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-redis-dev\"}",
-          "hide": false,
+          "expr": "{container=\"arena-redis-prod\"}",
           "queryType": "range",
           "refId": "C"
         },
@@ -940,8 +942,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-pgweb-dev\"}",
-          "hide": false,
+          "expr": "{container=\"arena-frontend-prod\"}",
           "queryType": "range",
           "refId": "D"
         }
@@ -962,8 +963,9 @@
     "to": "now"
   },
   "timepicker": {},
-  "timezone": "",
+  "timezone": "browser",
   "title": "Arena API Dashboard",
   "uid": "arena-main-dash",
-  "version": 7
+  "version": 2,
+  "weekStart": ""
 }
