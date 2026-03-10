@@ -92,11 +92,6 @@ services:
       - ./config/nginx/client.cert.pem:/etc/nginx/ssl/client.cert.pem
     networks:
       - arena-network
-    logging:
-      driver: loki
-      options:
-        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-nginx-prod,env=production
 
   # --- MONITORING (PROD) ---
   prometheus:
