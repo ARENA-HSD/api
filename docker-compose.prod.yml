@@ -89,8 +89,9 @@ services:
     container_name: arena-nginx-prod
     volumes:
       - ./config/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
-      - ./config/nginx/cert.pem:/etc/nginx/ssl/cert.pem
-      - ./config/nginx/private.cert.pem:/etc/nginx/ssl/private.cert.pem
+      - ./config/nginx/origin.cert.pem:/etc/nginx/ssl/origin.cert.pem
+      - ./config/nginx/origin.private.cert.pem:/etc/nginx/ssl/origin.private.cert.pem
+      - ./config/nginx/client.cert.pem:/etc/nginx/ssl/client.cert.pem
     networks:
       - arena-network
     logging:
