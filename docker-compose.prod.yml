@@ -6,8 +6,6 @@ services:
       dockerfile: Dockerfile # Production için olan, multi-stage Dockerfile
     container_name: arena-backend-prod
     restart: unless-stopped
-    ports:
-      - "${API_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
@@ -89,8 +87,9 @@ services:
     container_name: arena-nginx-prod
     volumes:
       - ./config/nginx/nginx.conf:/etc/nginx/conf.d/default.conf
-      - ./config/nginx/cert.pem:/etc/nginx/ssl/cert.pem
-      - ./config/nginx/private.cert.pem:/etc/nginx/ssl/private.cert.pem
+      - ./config/nginx/origin.cert.pem:/etc/nginx/ssl/origin.cert.pem
+      - ./config/nginx/origin.private.cert.pem:/etc/nginx/ssl/origin.private.cert.pem
+      - ./config/nginx/client.cert.pem:/etc/nginx/ssl/client.cert.pem
     networks:
       - arena-network
     logging:
