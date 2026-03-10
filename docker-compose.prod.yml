@@ -6,8 +6,8 @@ services:
       dockerfile: Dockerfile # Production için olan, multi-stage Dockerfile
     container_name: arena-backend-prod
     restart: unless-stopped
-    #ports:
-    #  - "${API_PORT:-3000}:3000"
+    ports:
+      - "${API_PORT:-3000}:3000"
     environment:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
