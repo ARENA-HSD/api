@@ -44,7 +44,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
       const existing = await db
         .select()
         .from(schema.users)
-        .where(or(eq(schema.users.email, email), eq(schema.users.username, username)))
+        .where(or(eq(schema.users.email, email.toLocaleLowerCase()), eq(schema.users.username, username.toLocaleLowerCase())))
         .limit(1);
 
       if (existing.length > 0) {
@@ -145,8 +145,8 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
 
       const updates: Partial<typeof schema.users.$inferInsert> = {};
 
-      if (body.name) updates.username = body.name;
-      if (body.email) updates.email = body.email;
+      if (body.username) updates.username = body.username.toLocaleLowerCase();
+      if (body.email) updates.email = body.email.toLocaleLowerCase();
       if (body.password) updates.password = await Bun.password.hash(body.password);
 
       if (Object.keys(updates).length === 0) {
@@ -200,7 +200,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
       params: t.Object({ id: t.String({ format: "uuid" }) }),
       headers: t.Object({ Authorization: t.Optional(t.String()) }),
       body: t.Object({
-        name: t.Optional(t.String()),
+        username: t.Optional(t.String()),
         email: t.Optional(t.String({ format: "email" })),
         password: t.Optional(t.String({ minLength: 6 })),
       }),
