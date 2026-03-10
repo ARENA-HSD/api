@@ -186,7 +186,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(process_cpu_seconds_total{env=\"dev\"}[1m]))",
+          "expr": "sum(rate(process_cpu_seconds_total{env=\"production\"}[1m]))",
           "legendFormat": "CPU Core Usage",
           "range": true,
           "refId": "A"
@@ -282,7 +282,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "(sum(process_resident_memory_bytes{env=\"dev\"}) / (1024*1024)) / 2",
+          "expr": "(sum(process_resident_memory_bytes{env=\"production\"}) / (1024*1024)) / 2",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -475,7 +475,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "nodejs_eventloop_lag_seconds{env=\"dev\"}",
+          "expr": "nodejs_eventloop_lag_seconds{env=\"production\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -765,7 +765,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "rate(nodejs_gc_duration_seconds_sum{env=\"dev\"}[1m])",
+          "expr": "rate(nodejs_gc_duration_seconds_sum{env=\"production\"}[1m])",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -859,7 +859,7 @@
       "targets": [
         {
           "editorMode": "code",
-          "expr": "active_requests{env=\"dev\"}",
+          "expr": "active_requests{env=\"production\"}",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
