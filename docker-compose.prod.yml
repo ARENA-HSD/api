@@ -113,6 +113,10 @@ services:
     image: prom/blackbox-exporter:latest
     container_name: arena-blackbox
     restart: unless-stopped
+    command:
+      - '--config.file=/etc/blackbox/blackbox.yml'
+    volumes:
+      - ./config/blackbox.yml:/etc/blackbox/blackbox.yml
     networks:
       - arena-network
 
