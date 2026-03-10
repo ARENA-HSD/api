@@ -67,6 +67,16 @@ const app = new Elysia({
     maxRequestBodySize: 1024 * 100, // 100KB payload limiti
   },
 })
+  .use(cors({
+    origin: [
+      /^https?:\/\/(.*?\.)?localhost:\d+$/,
+      "https://quizstrike.com.tr",
+      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
+    credentials: true
+  }))
   .derive(() => {
     return {
       startTime: process.hrtime()
@@ -343,16 +353,6 @@ const app = new Elysia({
       }
     },
   })
-  .use(cors({
-    origin: [
-      /^https?:\/\/(.*?\.)?localhost:\d+$/,
-      "https://quizstrike.com.tr",
-      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
-    ],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
-    credentials: true
-  }))
   ;
 
 // Expose server instance for service-level publishes used in games.service
