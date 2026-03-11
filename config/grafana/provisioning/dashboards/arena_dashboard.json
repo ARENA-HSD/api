@@ -422,7 +422,7 @@
         {
           "editorMode": "code",
           "expr": "nodejs_eventloop_lag_seconds{env=~\"prod|dev\", job=\"arena-api\"}",
-          "legendFormat": "__auto",
+          "legendFormat": "Event Loop Lag (s)",
           "range": true,
           "refId": "A"
         }
@@ -712,12 +712,12 @@
         {
           "editorMode": "code",
           "expr": "rate(nodejs_gc_duration_seconds_sum{env=~\"prod|dev\", job=\"arena-api\"}[1m])",
-          "legendFormat": "__auto",
+          "legendFormat": "GC Duration (s)",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Garbage Collection Duraiton",
+      "title": "Garbage Collection Duration",
       "type": "timeseries"
     },
     {
@@ -806,7 +806,7 @@
         {
           "editorMode": "code",
           "expr": "active_requests{env=~\"prod|dev\", job=\"arena-api\"}",
-          "legendFormat": "__auto",
+          "legendFormat": "Active Requests",
           "range": true,
           "refId": "A"
         }
