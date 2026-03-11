@@ -48,7 +48,7 @@ export async function createOrganization(
     const [existing] = await db
         .select()
         .from(schema.organizations)
-        .where(eq(schema.organizations.subdomain, data.subdomain))
+        .where(eq(schema.organizations.subdomain, data.subdomain.toLocaleLowerCase()))
         .limit(1);
 
     if (existing) {
@@ -60,7 +60,7 @@ export async function createOrganization(
         .insert(schema.organizations)
         .values({
             name: data.name,
-            subdomain: data.subdomain,
+            subdomain: data.subdomain.toLocaleLowerCase(),
             branding: data.branding || {},
             ownerId,
         })
@@ -83,7 +83,7 @@ export async function getOrganizationByDomain(subdomain: string) {
     const [organization] = await db
         .select()
         .from(schema.organizations)
-        .where(eq(schema.organizations.subdomain, subdomain))
+        .where(eq(schema.organizations.subdomain, subdomain.toLocaleLowerCase()))
         .limit(1);
 
     return organization || null;
@@ -156,7 +156,7 @@ export async function updateOrganization(
         const [existing] = await db
             .select()
             .from(schema.organizations)
-            .where(eq(schema.organizations.subdomain, data.subdomain))
+            .where(eq(schema.organizations.subdomain, data.subdomain.toLocaleLowerCase()))
             .limit(1);
 
         if (existing) {
@@ -167,7 +167,7 @@ export async function updateOrganization(
     // Update organization
     const updates: Partial<typeof schema.organizations.$inferInsert> = {};
     if (data.name) updates.name = data.name;
-    if (data.subdomain) updates.subdomain = data.subdomain;
+    if (data.subdomain) updates.subdomain = data.subdomain.toLocaleLowerCase();
     if (data.branding) updates.branding = data.branding;
 
     const [updated] = await db
