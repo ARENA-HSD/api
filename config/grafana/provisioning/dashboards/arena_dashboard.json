@@ -111,9 +111,20 @@
           },
           "editorMode": "code",
           "expr": "sum(rate(process_cpu_seconds_total{env=~\"prod|dev\", job=\"arena-api\"}[1m]))",
-          "legendFormat": "CPU Core Usage",
+          "legendFormat": "API Process CPU",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\", job=\"node-exporter\"}[1m]))",
+          "legendFormat": "System CPU Total",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "CPU Usage",
@@ -207,9 +218,20 @@
         {
           "editorMode": "code",
           "expr": "sum(process_resident_memory_bytes{env=~\"prod|dev\", job=\"arena-api\"}) / (1024*1024)",
-          "legendFormat": "__auto",
+          "legendFormat": "API Process RSS (MB)",
           "range": true,
           "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(node_memory_MemTotal_bytes{job=\"node-exporter\"} - node_memory_MemAvailable_bytes{job=\"node-exporter\"}) / (1024*1024)",
+          "legendFormat": "System Used Memory (MB)",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Memory",
