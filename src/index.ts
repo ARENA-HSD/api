@@ -67,6 +67,16 @@ const app = new Elysia({
     maxRequestBodySize: 1024 * 100, // 100KB payload limiti
   },
 })
+  .use(cors({
+    origin: [
+      /^https?:\/\/(.*?\.)?localhost:\d+$/,
+      "https://quizstrike.com.tr",
+      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
+    ],
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
+    credentials: true
+  }))
   .derive(() => {
     return {
       startTime: process.hrtime()
@@ -195,6 +205,8 @@ const app = new Elysia({
     detail: { summary: 'Database health check endpoint' }
   })
   .ws('/ws', {
+    idleTimeout: 240,
+    sendPingsAutomatically: true,
     async open(ws) {
       console.log('WebSocket connected:', ws.id);
       // Add to active sockets
@@ -295,13 +307,13 @@ const app = new Elysia({
           const playerInfo = await GamesHelper.getPlayerInfo(pin, socketId);
           if (!playerInfo) return;
 
-          if (gameState.status === 'ACTIVE' && sessionToken) {
-            // ACTIVE game: don't remove player — mark as disconnected, start grace period
+          if ((gameState.status === 'ACTIVE' || gameState.status === 'LOBBY') && sessionToken) {
+            // ACTIVE or LOBBY: don't remove player — mark as disconnected, start grace period
             await GamesHelper.markPlayerDisconnected(pin, socketId);
             GameService.startDisconnectGracePeriod(pin, socketId, sessionToken);
 
-            console.log(`Player disconnected during active game ${pin}: ${playerInfo.nickname} (grace period started)`);
-            logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: playerInfo.nickname } });
+            console.log(`Player disconnected during ${gameState.status} game ${pin}: ${playerInfo.nickname} (grace period started)`);
+            logEvent({ event: 'game.player.disconnected', level: 'WARNING', source: 'code', data: { pin, socketId, nickname: playerInfo.nickname, status: gameState.status } });
 
             // Notify host
             try {
@@ -314,7 +326,7 @@ const app = new Elysia({
               console.error('Failed to publish PLAYER_DISCONNECTED', err);
             }
           } else {
-            // LOBBY or FINISHED or no session: immediate cleanup
+            // FINISHED or no session: immediate cleanup
             const result = await GamesHelper.handlePlayerDisconnect(pin, socketId);
             if (sessionToken) {
               await GamesHelper.removeSession(pin, sessionToken, socketId);
@@ -343,16 +355,6 @@ const app = new Elysia({
       }
     },
   })
-  .use(cors({
-    origin: [
-      /^https?:\/\/(.*?\.)?localhost:\d+$/,
-      "https://quizstrike.com.tr",
-      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
-    ],
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
-    credentials: true
-  }))
   ;
 
 // Expose server instance for service-level publishes used in games.service
