@@ -13,7 +13,7 @@ import { cleanupExpiredInvitations } from "./modules/invitations/invitations.ser
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
-import { register, httpRequestsTotal, httpRequestDurationSeconds } from "./lib/metrics";
+import { register, httpRequestsTotal, httpRequestDurationSeconds, activeWebSocketConnections } from "./lib/metrics";
 import { logEvent } from "./shared/helpers/log.helper";
 import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
 import { rateLimit } from 'elysia-rate-limit';
@@ -213,6 +213,8 @@ const app = new Elysia({
       activeSockets.add(ws);
       // Track socket ID for liveness checks (synchronous — no await)
       trackSocketOpen(ws.id);
+      // Prometheus: WebSocket bağlantı sayısını artır
+      activeWebSocketConnections.inc();
     },
 
     async message(ws, message: any) {
@@ -274,6 +276,8 @@ const app = new Elysia({
         activeSockets.delete(ws);
         // Track socket close synchronously — no await, no race
         trackSocketClose(socketId);
+        // Prometheus: WebSocket bağlantı sayısını azalt
+        activeWebSocketConnections.dec();
       } catch (err) {
         // ignore
       }
