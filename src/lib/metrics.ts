@@ -29,6 +29,12 @@ export const httpRequestDurationSeconds = new Histogram({
 
 export const activeRequests = new Gauge({
     name: 'active_requests',
-    help: 'Number of active requests',
+    help: 'Number of active HTTP requests',
+    registers: [register]
+});
+
+export const activeWebSocketConnections = new Gauge({
+    name: 'active_websocket_connections',
+    help: 'Number of active WebSocket connections',
     registers: [register]
 });
