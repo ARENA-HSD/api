@@ -1037,7 +1037,7 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-frontend-prod\"}",
+          "expr": "{container=\"arena-frontend-prod\"} != \"Blackbox-Exporter/0.28.0\"",
           "queryType": "range",
           "refId": "D"
         }
