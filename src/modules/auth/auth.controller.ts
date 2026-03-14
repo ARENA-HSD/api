@@ -6,33 +6,12 @@ import { db, schema } from "../../core/database/client";
 import { jwtConfig, toPublicUser } from "../../middleware/auth.middleware";
 import { logEvent } from "../../shared/helpers/log.helper";
 import { verifyTurnstileToken } from "../../shared/helpers/turnstile.helper";
-
-let DEFAULT_MAIN_DOMAIN = "quizstrike.com.tr";
-
-if (process.env.NODE_ENV === "development") DEFAULT_MAIN_DOMAIN = "localhost";
-
-const MAIN_DOMAIN = (process.env.MAIN_DOMAIN ?? DEFAULT_MAIN_DOMAIN).toLowerCase();
-
-const parseFirstHeaderValue = (value: string | null): string | undefined => {
-	if (!value) return undefined;
-	return value.split(",")[0]?.trim() || undefined;
-};
-
-const normalizeHost = (value: string | undefined): string | undefined => {
-	if (!value) return undefined;
-	return value.split("://")[1]?.trim().split(":")[0]?.toLowerCase();
-};
-
-const getRequestHost = (request: Request): string | undefined => {
-	const forwardedHost = parseFirstHeaderValue(request.headers.get("x-forwarded-host"));
-	const host = normalizeHost(forwardedHost ?? request.headers.get("origin") ?? undefined);
-	return host;
-};
-
-const isMainDomainHost = (host: string | undefined): boolean => {
-	if (!host) return true;
-	return host === MAIN_DOMAIN || host === `www.${MAIN_DOMAIN}`;
-};
+import { getOrgIdBySubdomain, getUserRoleInOrg } from "../../middleware/rbac.middleware";
+import {
+	getOrgSubdomainFromHost,
+	getRequestHost,
+	isMainDomainHost,
+} from "../../shared/helpers/request-host.helper";
 
 const shouldVerifyTurnstileOnLogin = (host: string | undefined): boolean => {
 	if (!host) return true;
@@ -40,7 +19,7 @@ const shouldVerifyTurnstileOnLogin = (host: string | undefined): boolean => {
 	if (isMainDomainHost(host)) return true;
 
 	// Skip Turnstile for org subdomains only.
-	if (host.endsWith(`.${MAIN_DOMAIN}`)) return false;
+	if (getOrgSubdomainFromHost(host)) return false;
 
 	return true;
 };
@@ -53,6 +32,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 		async ({ body, set, jwt, request }) => {
 			const { email, password, cfTurnstileToken } = body;
 			const host = getRequestHost(request);
+			const orgSubdomain = getOrgSubdomainFromHost(host);
 
 			const remoteIp =
 				request.headers.get("CF-Connecting-IP") ??
@@ -94,6 +74,23 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 			if (!valid) {
 				set.status = 401;
 				return { success: false, message: "Invalid credentials" };
+			}
+
+			if (orgSubdomain) {
+				const orgId = await getOrgIdBySubdomain(orgSubdomain);
+
+				if (!orgId) {
+					set.status = 403;
+					logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'org_not_found' } });
+					return { success: false, message: "Organization access denied" };
+				}
+
+				const role = await getUserRoleInOrg(user.id, orgId);
+				if (!role) {
+					set.status = 403;
+					logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, orgId, reason: 'not_member' } });
+					return { success: false, message: "Organization access denied" };
+				}
 			}
 
 			const token = await jwt.sign({ sub: user.id, email: user.email });
