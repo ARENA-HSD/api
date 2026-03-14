@@ -5,14 +5,26 @@ import { eq } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
 import { jwtConfig, toPublicUser } from "../../middleware/auth.middleware";
 import { logEvent } from "../../shared/helpers/log.helper";
+import { verifyTurnstileToken } from "../../shared/helpers/turnstile.helper";
 
 export const loginRoutes = new Elysia({ prefix: "/login" })
 	.use(bearer())
 	.use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
 	.post(
 		"/",
-		async ({ body, set, jwt }) => {
-			const { email, password } = body;
+		async ({ body, set, jwt, request }) => {
+			const { email, password, cfTurnstileToken } = body;
+
+			const remoteIp =
+				request.headers.get("CF-Connecting-IP") ??
+				request.headers.get("X-Forwarded-For") ??
+				undefined;
+
+			const turnstile = await verifyTurnstileToken(cfTurnstileToken, remoteIp ?? undefined);
+			if (!turnstile.success) {
+				set.status = 400;
+				return { success: false, message: "Turnstile verification failed" };
+			}
 
 			const [user] = await db
 				.select()
@@ -52,6 +64,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 			body: t.Object({
 				email: t.String({ format: "email" }),
 				password: t.String({ minLength: 6 }),
+				cfTurnstileToken: t.String({ minLength: 1 }),
 			}),
 			response: t.Object({
 				success: t.Boolean(),

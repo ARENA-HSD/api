@@ -20,6 +20,7 @@ services:
       - TELEGRAM_INFO_TOPIC_ID=${TELEGRAM_INFO_TOPIC_ID}
       - TELEGRAM_ERROR_TOPIC_ID=${TELEGRAM_ERROR_TOPIC_ID}
       - TELEGRAM_CRITICAL_TOPIC_ID=${TELEGRAM_CRITICAL_TOPIC_ID}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
     # Production'da volumes ile kod bağlamıyoruz, kod imajın içine gömüldü.
     depends_on:
       postgres:
