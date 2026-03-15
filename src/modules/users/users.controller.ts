@@ -4,6 +4,7 @@ import jwtPlugin from "@elysiajs/jwt";
 import { and, eq, ne, or } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
 import { jwtConfig, toPublicUser } from "../../middleware/auth.middleware";
+import { verifyTurnstileToken } from "../../shared/helpers/turnstile.helper";
 
 type CookieJar = Record<string, { value?: string | undefined }> | undefined;
 type AuthPayload = { sub: string; email: string };
@@ -38,8 +39,19 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
   .post(
     "/",
-    async ({ body, set, jwt }) => {
-      const { username, email, password } = body;
+    async ({ body, set, jwt, request }) => {
+      const { username, email, password, cfTurnstileToken } = body;
+
+      const remoteIp =
+        request.headers.get("CF-Connecting-IP") ??
+        request.headers.get("X-Forwarded-For") ??
+        undefined;
+
+      const turnstile = await verifyTurnstileToken(cfTurnstileToken, remoteIp ?? undefined);
+      if (!turnstile.success) {
+        set.status = 400;
+        return { success: false, message: "Turnstile verification failed" };
+      }
 
       const existing = await db
         .select()
@@ -74,6 +86,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
         username: t.String({ minLength: 3 }),
         email: t.String({ format: "email" }),
         password: t.String({ minLength: 6 }),
+        cfTurnstileToken: t.String({ minLength: 1 }),
       }),
       response: t.Object({
         success: t.Boolean(),

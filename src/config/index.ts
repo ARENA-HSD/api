@@ -16,5 +16,8 @@ export const config = {
     app: {
         port: parseInt(process.env.PORT || '3000'),
         env: process.env.NODE_ENV || 'development',
-    }
+    },
+    turnstile: {
+        secretKey: process.env.TURNSTILE_SECRET_KEY!,
+    },
 } as const;
