@@ -5,6 +5,8 @@
 import Redis from 'ioredis';
 import type {
     GameState,
+    GameMode,
+    GameStatus,
     GamePhase,
     PlayerInfo,
     LeaderboardEntry,
@@ -12,8 +14,72 @@ import type {
 } from '../../../modules/games/games.types';
 
 // Initialize Redis client
-const REDIS_URL = process.env.REDIS_URL || 'redis://redis:6379';
+const REDIS_URL = process.env.REDIS_URL;
+if (!REDIS_URL) {
+    throw new Error('REDIS_URL is required');
+}
 export const redis = new Redis(REDIS_URL);
+
+const GAME_TTL_SECONDS = 60 * 60 * 24; // 24 hours
+
+const GAME_STATUS_VALUES: ReadonlySet<GameStatus> = new Set(['LOBBY', 'ACTIVE', 'FINISHED']);
+const GAME_MODE_VALUES: ReadonlySet<GameMode> = new Set(['PERSONAL', 'STAGE']);
+const GAME_PHASE_VALUES: ReadonlySet<GamePhase> = new Set([
+    'LOBBY',
+    'QUESTION_START',
+    'QUESTION_END',
+    'LEADERBOARD_RESULT',
+    'GAME_OVER',
+]);
+
+function parseInteger(value: string | undefined, fallback: number): number {
+    const parsed = Number.parseInt(value ?? '', 10);
+    return Number.isNaN(parsed) ? fallback : parsed;
+}
+
+function toRedisHash(values: Record<string, unknown>): Record<string, string> {
+    const result: Record<string, string> = {};
+
+    for (const [key, value] of Object.entries(values)) {
+        if (value === undefined || value === null) {
+            continue;
+        }
+        result[key] = String(value);
+    }
+
+    return result;
+}
+
+function parseGameStatus(status: string | undefined): GameStatus {
+    return GAME_STATUS_VALUES.has(status as GameStatus) ? (status as GameStatus) : 'LOBBY';
+}
+
+function parseGameMode(mode: string | undefined): GameMode {
+    return GAME_MODE_VALUES.has(mode as GameMode) ? (mode as GameMode) : 'PERSONAL';
+}
+
+function parseGamePhase(phase: string | undefined): GamePhase {
+    return GAME_PHASE_VALUES.has(phase as GamePhase) ? (phase as GamePhase) : 'LOBBY';
+}
+
+async function touchGameKeys(pin: string): Promise<void> {
+    await redis.expire(getGameStateKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getPlayersKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getRecentPlayersKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getAnswersKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getLeaderboardKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getBannedKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getRankSnapshotKey(pin), GAME_TTL_SECONDS);
+    await redis.expire(getQuestionTimerKey(pin), GAME_TTL_SECONDS);
+}
+
+async function touchPlayerKey(pin: string, socketId: string): Promise<void> {
+    await redis.expire(getPlayerInfoKey(pin, socketId), GAME_TTL_SECONDS);
+}
+
+async function touchAnswerKey(pin: string, questionId: string, socketId: string): Promise<void> {
+    await redis.expire(getPlayerAnswerKey(pin, questionId, socketId), GAME_TTL_SECONDS);
+}
 
 
 // UTILITY FUNCTIONS
@@ -142,7 +208,8 @@ export async function createGameState(
         currentPhase: 'LOBBY',
     };
 
-    await redis.hset(getGameStateKey(pin), state as any);
+    await redis.hset(getGameStateKey(pin), toRedisHash(state as unknown as Record<string, unknown>));
+    await touchGameKeys(pin);
 }
 
 /**
@@ -156,16 +223,16 @@ export async function getGameState(pin: string): Promise<GameState | null> {
     }
 
     return {
-        status: state.status as any,
-        currentQuestionIndex: parseInt(state.currentQuestionIndex),
-        mode: state.mode as any,
+        status: parseGameStatus(state.status),
+        currentQuestionIndex: parseInteger(state.currentQuestionIndex, 0),
+        mode: parseGameMode(state.mode),
         hostSocketId: state.hostSocketId,
         hostSessionToken: state.hostSessionToken || '',
-        totalAnswers: parseInt(state.totalAnswers),
+        totalAnswers: parseInteger(state.totalAnswers, 0),
         quizId: state.quizId,
-        totalPlayers: parseInt(state.totalPlayers),
-        totalQuestions: parseInt(state.totalQuestions),
-        currentPhase: (state.currentPhase as GamePhase) || 'LOBBY',
+        totalPlayers: parseInteger(state.totalPlayers, 0),
+        totalQuestions: parseInteger(state.totalQuestions, 0),
+        currentPhase: parseGamePhase(state.currentPhase),
     };
 }
 
@@ -179,7 +246,8 @@ export async function updateGameState(
     if (Object.keys(updates).length === 0) {
         return;
     }
-    await redis.hset(getGameStateKey(pin), updates as any);
+    await redis.hset(getGameStateKey(pin), toRedisHash(updates as Record<string, unknown>));
+    await touchGameKeys(pin);
 }
 
 
@@ -207,7 +275,7 @@ export async function addPlayer(
         hasAnswered: false,
     };
 
-    await redis.hset(getPlayerInfoKey(pin, socketId), playerInfo as any);
+    await redis.hset(getPlayerInfoKey(pin, socketId), toRedisHash(playerInfo as unknown as Record<string, unknown>));
 
     // Add to leaderboard with score 0
     await redis.zadd(getLeaderboardKey(pin), 0, nickname);
@@ -215,6 +283,8 @@ export async function addPlayer(
 
     // Increment total players
     await redis.hincrby(getGameStateKey(pin), 'totalPlayers', 1);
+    await touchPlayerKey(pin, socketId);
+    await touchGameKeys(pin);
 }
 
 /**
@@ -295,14 +365,14 @@ export async function getPlayerInfo(
 
     return {
         nickname: info.nickname,
-        score: parseInt(info.score),
-        streak: parseInt(info.streak),
+        score: parseInteger(info.score, 0),
+        streak: parseInteger(info.streak, 0),
         ip: info.ip,
         hasAnswered: info.hasAnswered === 'true',
-        lastPoints: info.lastPoints ? parseInt(info.lastPoints) : 0,
+        lastPoints: info.lastPoints ? parseInteger(info.lastPoints, 0) : 0,
         sessionToken: info.sessionToken || undefined,
         disconnected: info.disconnected === 'true',
-        disconnectedAt: info.disconnectedAt ? parseInt(info.disconnectedAt) : undefined,
+        disconnectedAt: info.disconnectedAt ? parseInteger(info.disconnectedAt, 0) : undefined,
     };
 }
 
@@ -341,6 +411,8 @@ export async function updatePlayerScore(
 
     // Mark as answered
     await redis.hset(playerKey, 'hasAnswered', 'true', 'lastPoints', scoreToAdd.toString());
+    await touchPlayerKey(pin, socketId);
+    await touchGameKeys(pin);
 
     return { newScore, newStreak };
 }
@@ -374,6 +446,7 @@ export async function resetAllAnswerFlags(pin: string): Promise<void> {
 
     // Reset total answers
     await redis.hset(getGameStateKey(pin), 'totalAnswers', 0);
+    await touchGameKeys(pin);
 }
 
 
@@ -429,7 +502,8 @@ export async function loadAnswerKey(
         answerKey[question.id] = question.correctIndex;
     }
 
-    await redis.hset(getAnswersKey(pin), answerKey as any);
+    await redis.hset(getAnswersKey(pin), toRedisHash(answerKey));
+    await touchGameKeys(pin);
 }
 
 /**
@@ -458,6 +532,7 @@ export async function checkAnswer(
  */
 export async function addToBanList(pin: string, ip: string): Promise<void> {
     await redis.sadd(getBannedKey(pin), ip);
+    await touchGameKeys(pin);
 }
 
 /**
@@ -615,7 +690,8 @@ export async function saveRankSnapshot(pin: string): Promise<void> {
         snapshot[nickname] = rank++;
     }
 
-    await redis.hset(getRankSnapshotKey(pin), snapshot as any);
+    await redis.hset(getRankSnapshotKey(pin), toRedisHash(snapshot));
+    await touchGameKeys(pin);
 }
 
 /**
@@ -652,6 +728,7 @@ const getQuestionTimerKey = (pin: string) => `game:${pin}:question_timer`;
  */
 export async function setQuestionStartTime(pin: string, timestamp: number): Promise<void> {
     await redis.set(getQuestionTimerKey(pin), timestamp.toString());
+    await touchGameKeys(pin);
 }
 
 /**
@@ -687,6 +764,7 @@ export async function addRecentPlayer(pin: string, nickname: string): Promise<vo
     const key = getRecentPlayersKey(pin);
     await redis.lpush(key, nickname);
     await redis.ltrim(key, 0, 27); // Keep only last 28
+    await touchGameKeys(pin);
 }
 
 
@@ -703,6 +781,8 @@ export async function storePlayerAnswer(
     optionIndex: number
 ): Promise<void> {
     await redis.set(getPlayerAnswerKey(pin, questionId, socketId), optionIndex.toString());
+    await touchAnswerKey(pin, questionId, socketId);
+    await touchGameKeys(pin);
 }
 
 /**

@@ -206,7 +206,7 @@ const app = new Elysia({
   })
   .ws('/ws', {
     idleTimeout: 240,
-    sendPingsAutomatically: true,
+    sendPings: true,
     async open(ws) {
       console.log('WebSocket connected:', ws.id);
       // Add to active sockets

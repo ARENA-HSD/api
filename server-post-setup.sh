@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -euo pipefail
+
 [ "$EUID" -eq 0 ] && echo "Please run without sudo" && exit
 
 echo "Do not afraid while typing password, it will not show up."
@@ -72,7 +74,7 @@ VITE_BASE_DOMAIN=${VITE_BASE_DOMAIN}
 EOF
 
 cd ../frontend
-docker compose -f docker-compose.prod.yml up -d --buiild
+docker compose -f docker-compose.prod.yml up -d --build
 echo "Success. Frontend container is running."
 
 cd ../

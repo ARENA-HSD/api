@@ -2,7 +2,10 @@ import jwt from "jsonwebtoken";
 import { schema } from "../core/database/client";
 import type { InferSelectModel } from "drizzle-orm";
 
-const JWT_SECRET = process.env.JWT_SECRET || "dev-secret";
+const JWT_SECRET = process.env.JWT_SECRET;
+if (!JWT_SECRET) {
+  throw new Error("JWT_SECRET is required");
+}
 const TOKEN_EXPIRES_IN = "7d";
 
 export type UserRow = InferSelectModel<typeof schema.users>;

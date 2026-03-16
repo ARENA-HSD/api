@@ -1,11 +1,16 @@
 import { defineConfig } from 'drizzle-kit';
 
+const databaseUrl = process.env.DATABASE_URL;
+if (!databaseUrl) {
+  throw new Error('DATABASE_URL is required for drizzle');
+}
+
 export default defineConfig({
   schema: './src/core/database/schema/index.ts',
   out: './drizzle',
   dialect: 'postgresql',
   dbCredentials: {
-    url: process.env.DATABASE_URL || 'postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db',
+    url: databaseUrl,
   },
   verbose: true,
   strict: true,
