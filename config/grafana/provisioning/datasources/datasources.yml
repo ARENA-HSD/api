@@ -15,3 +15,17 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: true
+    jsonData:
+      # Prometheus ile korelasyon (log satırından metriğe atlama)
+      derivedFields:
+        - name: "TraceID"
+          matcherRegex: "trace_id=(\\w+)"
+          url: ""
+          datasourceUid: ""
+      # Grafana Explore Logs (Drilldown) için servis haritası
+      serviceMap:
+        datasourceUid: "Prometheus"
+      # Maksimum log satırı
+      maxLines: 1000
+      # Explore Logs'ta kullanılacak label
+      lokiDerivedFields: []
