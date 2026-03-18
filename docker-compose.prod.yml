@@ -177,6 +177,8 @@ services:
     environment:
       - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
       - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
+      # Explore Logs (Drilldown) özelliğini aktif et
+      - GF_FEATURE_TOGGLES_ENABLE=exploreLogsAggregatedMetrics
     volumes:
       - ./config/grafana/provisioning:/etc/grafana/provisioning
       - grafana_data_prod:/var/lib/grafana

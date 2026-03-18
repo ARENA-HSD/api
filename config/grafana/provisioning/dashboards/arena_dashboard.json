@@ -976,24 +976,25 @@
         "overrides": []
       },
       "gridPos": {
-        "h": 12,
+        "h": 14,
         "w": 24,
         "x": 0,
         "y": 24
       },
       "id": 4,
+      "description": "Üstteki dropdown'dan servis seçerek logları filtreleyin. Arama kutusuna anahtar kelime girerek log satırlarını filtreleyebilirsiniz.",
       "options": {
         "dedupStrategy": "none",
-        "enableInfiniteScrolling": false,
+        "enableInfiniteScrolling": true,
         "enableLogDetails": true,
         "prettifyLogMessage": false,
-        "showCommonLabels": false,
-        "showControls": false,
-        "showLabels": false,
+        "showCommonLabels": true,
+        "showControls": true,
+        "showLabels": true,
         "showTime": true,
         "sortOrder": "Descending",
         "unwrappedColumns": false,
-        "wrapLogMessage": false
+        "wrapLogMessage": true
       },
       "pluginVersion": "12.4.1",
       "targets": [
@@ -1004,45 +1005,13 @@
           },
           "direction": "backward",
           "editorMode": "code",
-          "expr": "{container=\"arena-backend-prod\"}",
+          "expr": "{job=~\"$service\"} |~ \"(?i)$log_search\"",
           "queryType": "range",
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "direction": "backward",
-          "editorMode": "code",
-          "expr": "{container=\"arena-postgres-prod\"}",
-          "queryType": "range",
-          "refId": "B"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "direction": "backward",
-          "editorMode": "code",
-          "expr": "{container=\"arena-redis-prod\"}",
-          "queryType": "range",
-          "refId": "C"
-        },
-        {
-          "datasource": {
-            "type": "loki",
-            "uid": "Loki"
-          },
-          "direction": "backward",
-          "editorMode": "code",
-          "expr": "{container=\"arena-frontend-prod\"} != \"Blackbox-Exporter/0.28.0\"",
-          "queryType": "range",
-          "refId": "D"
+          "refId": "A",
+          "legendFormat": ""
         }
       ],
-      "title": "Application Logs",
+      "title": "🪵 Service Logs — $service",
       "type": "logs"
     }
   ],
@@ -1051,7 +1020,55 @@
   "schemaVersion": 42,
   "tags": [],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "current": {},
+        "datasource": {
+          "type": "loki",
+          "uid": "Loki"
+        },
+        "definition": "label_values(job)",
+        "description": "Log görüntülemek istediğiniz servisi seçin",
+        "hide": 0,
+        "includeAll": true,
+        "allValue": ".+",
+        "multi": false,
+        "name": "service",
+        "label": "Servis",
+        "options": [],
+        "query": {
+          "label": "job",
+          "refId": "StandardVariableQuery",
+          "stream": "",
+          "type": 1
+        },
+        "refresh": 2,
+        "regex": "arena-(?!blackbox).*",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "",
+          "value": ""
+        },
+        "description": "Log satırlarında arama yapın (büyük/küçük harf duyarsız)",
+        "hide": 0,
+        "label": "Log Arama",
+        "name": "log_search",
+        "options": [
+          {
+            "selected": true,
+            "text": "",
+            "value": ""
+          }
+        ],
+        "query": "",
+        "skipUrlSync": false,
+        "type": "textbox"
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
