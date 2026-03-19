@@ -9,6 +9,7 @@ import { questionsRoutes } from "./modules/questions/questions.controller";
 import { quizzesRoutes } from "./modules/quizzes/quizzes.controller";
 import { loginRoutes } from "./modules/auth/auth.controller";
 import { invitationsRoutes } from "./modules/invitations/invitations.controller";
+import { adminRoutes } from "./modules/admin/admin.controller";
 import { cleanupExpiredInvitations } from "./modules/invitations/invitations.service";
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
@@ -113,6 +114,7 @@ const app = new Elysia({
         { name: 'Question Operations', description: 'Question related endpoints' },
         { name: 'Game Operations', description: 'Game related endpoints' },
         { name: 'Invitation Operations', description: 'Invitation related endpoints' },
+        { name: 'Admin Operations', description: 'Admin panel operations (WEB_ADMIN only)' },
       ],
       components: {
         securitySchemes: {
@@ -136,6 +138,7 @@ const app = new Elysia({
       .use(questionsRoutes)
       .use(invitationsRoutes)
       .use(orgRoutes)
+      .use(adminRoutes)
       .use(gamesRoutes)
       .post('/rate-limit', () => {
         return 'Rate limit test';
