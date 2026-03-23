@@ -337,6 +337,15 @@ export async function handleSetNickname(ws: any, data: SetNicknameEvent['data'])
         await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
         await GamesHelper.createSession(pin, ws.id, hostSessionToken);
         ws.subscribe(`game:${pin}:host`);
+
+        // Send initial lobby state directly to the host socket
+        const hostPlayers1 = await GamesHelper.getAllPlayerSockets(pin);
+        const hostRecent1 = await GamesHelper.getRecentPlayers(pin, 28);
+        ws.send(JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: { count: hostPlayers1.length, recentPlayers: hostRecent1 },
+        }));
+
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
             data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
@@ -352,6 +361,15 @@ export async function handleSetNickname(ws: any, data: SetNicknameEvent['data'])
         await GamesHelper.updateGameState(pin, { hostSocketId: ws.id, hostSessionToken });
         await GamesHelper.createSession(pin, ws.id, hostSessionToken);
         ws.subscribe(`game:${pin}:host`);
+
+        // Send initial lobby state directly to the host socket
+        const hostPlayers2 = await GamesHelper.getAllPlayerSockets(pin);
+        const hostRecent2 = await GamesHelper.getRecentPlayers(pin, 28);
+        ws.send(JSON.stringify({
+            type: 'LOBBY_UPDATE',
+            data: { count: hostPlayers2.length, recentPlayers: hostRecent2 },
+        }));
+
         ws.send(JSON.stringify({
             type: 'JOIN_SUCCESS',
             data: { status: 'WAITING', myNick: uniqueNickname, sessionToken: hostSessionToken },
@@ -412,6 +430,43 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
             type: 'LOBBY_UPDATE',
             data: { count: players.length, recentPlayers },
         }));
+    } else if (phase === 'QUESTION_START') {
+        // Re-send QUESTION_START with full question data for host
+        const quiz = await db.query.quizzes.findFirst({
+            where: eq(schema.quizzes.id, state.quizId),
+            with: {
+                questions: {
+                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
+                },
+            },
+        });
+        if (quiz && quiz.questions[state.currentQuestionIndex]) {
+            const question = quiz.questions[state.currentQuestionIndex];
+            const questionData = {
+                id: question.id,
+                text: question.text,
+                mediaUrl: question.mediaUrl || undefined,
+                timeLimit: question.timeLimit,
+                points: question.points || 1000,
+                correctIndex: question.correctIndex,
+                orderIndex: question.orderIndex,
+                options: question.options as any,
+            };
+            const filteredPersonalQuestion = filterQuestionByMode(questionData, 'PERSONAL');
+
+            // Send answer stat update
+            const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
+            const activePlayers = await GamesHelper.countActivePlayers(pin);
+            ws.send(JSON.stringify({
+                type: 'ANSWER_STAT_UPDATE',
+                data: { answeredCount, totalPlayers: activePlayers },
+            }));
+
+            ws.send(JSON.stringify({
+                type: 'QUESTION_START',
+                data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
+            }));
+        }
     } else if (phase === 'QUESTION_END') {
         // Re-send QUESTION_END
         const quiz = await db.query.quizzes.findFirst({
@@ -546,6 +601,10 @@ export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
                 mode: state.mode,
                 remainingTime,
                 currentPhase: state.currentPhase,
+                phase: state.currentPhase === 'QUESTION_START' ? 'question'
+                     : state.currentPhase === 'QUESTION_END' ? 'results'
+                     : state.currentPhase === 'LEADERBOARD_RESULT' ? 'leaderboard'
+                     : state.currentPhase,
             },
         }));
 
@@ -848,12 +907,12 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     const { publish } = await import('../../core/pubsub/broadcaster');
 
     const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
-    const currentState = await GamesHelper.getGameState(pin);
+    const activePlayers = await GamesHelper.countActivePlayers(pin);
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'ANSWER_STAT_UPDATE',
         data: {
             answeredCount,
-            totalPlayers: currentState ? currentState.totalPlayers : 0,
+            totalPlayers: activePlayers,
         },
     }));
 
