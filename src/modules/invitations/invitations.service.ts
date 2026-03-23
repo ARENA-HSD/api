@@ -177,28 +177,35 @@ export async function getInvitationById(
     return { success: true, data: { invitation } };
 }
 
-//  LIST INVITATIONS
-
 export async function getInvitationsByOrg(
     orgId: string,
     userId: string,
     userRole: 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | null
 ): Promise<InvitationResult> {
+    const baseQuery = db
+        .select({
+            id: schema.invitations.id,
+            orgId: schema.invitations.orgId,
+            inviterId: schema.invitations.inviterId,
+            inviteeId: schema.invitations.inviteeId,
+            status: schema.invitations.status,
+            createdAt: schema.invitations.createdAt,
+            inviteeUsername: schema.users.username,
+        })
+        .from(schema.invitations)
+        .innerJoin(schema.users, eq(schema.invitations.inviteeId, schema.users.id));
+
     let invitations;
 
     if (userRole === 'SUPER_ADMIN') {
-        invitations = await db
-            .select()
-            .from(schema.invitations)
+        invitations = await baseQuery
             .where(eq(schema.invitations.orgId, orgId));
     } else {
-        invitations = await db
-            .select()
-            .from(schema.invitations)
+        invitations = await baseQuery
             .where(
                 and(
                     eq(schema.invitations.orgId, orgId),
-                    eq(schema.invitations.inviteeId, userId)
+                    eq(schema.invitations.inviterId, userId) // Users can only see invites THEY sent, or all if SUPER_ADMIN
                 )
             );
     }

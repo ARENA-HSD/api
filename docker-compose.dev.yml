@@ -101,7 +101,7 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=
+      PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
     logging:
       driver: loki
       options:
