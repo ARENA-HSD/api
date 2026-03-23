@@ -30,10 +30,10 @@ services:
     networks:
       - arena-network
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-backend-prod,service_name=arena-backend-prod,env=production
+        max-size: "10m"
+        max-file: "3"
 
   # --- POSTGRES (PROD) ---
   postgres:
@@ -55,10 +55,10 @@ services:
       timeout: 5s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-postgres-prod,service_name=arena-postgres-prod,env=production
+        max-size: "10m"
+        max-file: "3"
     # --- REDIS (PROD) ---
   redis:
     image: redis:alpine
@@ -75,10 +75,10 @@ services:
       timeout: 3s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://127.0.0.1:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-redis-prod,service_name=arena-redis-prod,env=production
+        max-size: "10m"
+        max-file: "3"
 
   nginx:
     image: nginx:latest
@@ -161,6 +161,7 @@ services:
     volumes:
       - ./config/promtail.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - promtail_data_prod:/var/lib/promtail
     networks:
       - arena-network

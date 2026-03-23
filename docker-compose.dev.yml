@@ -36,7 +36,7 @@ services:
       driver: loki
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-backend-dev,env=development
+        loki-external-labels: job=arena-backend-dev,service_name=arena-backend-dev,env=development
     # Loglar doğrudan lokiye gider, console'a yazmaz.
     command: [ "bun", "run", "--watch", "src/index.ts" ]
 
@@ -64,7 +64,7 @@ services:
       driver: loki
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-postgres-dev,env=development
+        loki-external-labels: job=arena-postgres-dev,service_name=arena-postgres-dev,env=development
     # Loglar doğrudan lokiye gider, console'a yazmaz.
 
     # --- REDIS (DEV) ---
@@ -87,7 +87,7 @@ services:
       driver: loki
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-redis-dev,env=development
+        loki-external-labels: job=arena-redis-dev,service_name=arena-redis-dev,env=development
     # Loglar doğrudan lokiye gider, console'a yazmaz.
 
   pgweb:
@@ -106,7 +106,7 @@ services:
       driver: loki
       options:
         loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-pgweb-dev,env=development
+        loki-external-labels: job=arena-pgweb-dev,service_name=arena-pgweb-dev,env=development
     # Loglar doğrudan lokiye gider, console'a yazmaz.
 
     # --- MONITOR (DEV) ---
@@ -135,6 +135,7 @@ services:
       - "3100:3100"
     volumes:
       - ./config/loki.yml:/etc/loki/local-config.yaml
+      - loki_data_dev:/loki
     networks:
       - arena-network
     logging:
@@ -150,6 +151,8 @@ services:
     volumes:
       - ./config/promtail.yml:/etc/promtail/config.yml
       - /var/run/docker.sock:/var/run/docker.sock
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail_data_dev:/var/lib/promtail
     networks:
       - arena-network
     logging:
@@ -184,3 +187,5 @@ networks:
 volumes:
   postgres_data_dev:
   redis_data_dev:
+  loki_data_dev:
+  promtail_data_dev:
