@@ -271,31 +271,6 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
       },
     }
   )
-  .get(
-    "/",
-    async () => {
-      const users = await db.select().from(schema.users);
-      return { success: true, data: { users: users.map(toPublicUser) } };
-    },
-    {
-      response: t.Object({
-        success: t.Boolean(),
-        data: t.Optional(t.Object({
-          users: t.Array(t.Object({
-            id: t.String({ format: "uuid" }),
-            username: t.String(),
-            email: t.String({ format: "email" }),
-            createdAt: t.Date(),
-          })),
-        })),
-        message: t.Optional(t.String()),
-      }),
-      detail: {
-        summary: "Get all users",
-        tags: ["User Operations"],
-      },
-    }
-  )
 
   // ─── MY INVITATIONS ─────────────────────────────────────────
 

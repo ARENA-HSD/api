@@ -77,19 +77,27 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 			}
 
 			if (orgSubdomain) {
-				const orgId = await getOrgIdBySubdomain(orgSubdomain);
+				if (orgSubdomain === "admin") {
+					if (user.role !== "WEB_ADMIN") {
+						set.status = 403;
+						logEvent({ event: 'auth.admin.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'not_web_admin' } });
+						return { success: false, message: "Admin access denied" };
+					}
+				} else {
+					const orgId = await getOrgIdBySubdomain(orgSubdomain);
 
-				if (!orgId) {
-					set.status = 403;
-					logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'org_not_found' } });
-					return { success: false, message: "Organization access denied" };
-				}
+					if (!orgId) {
+						set.status = 403;
+						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'org_not_found' } });
+						return { success: false, message: "Organization access denied" };
+					}
 
-				const role = await getUserRoleInOrg(user.id, orgId);
-				if (!role) {
-					set.status = 403;
-					logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, orgId, reason: 'not_member' } });
-					return { success: false, message: "Organization access denied" };
+					const role = await getUserRoleInOrg(user.id, orgId);
+					if (!role) {
+						set.status = 403;
+						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, orgId, reason: 'not_member' } });
+						return { success: false, message: "Organization access denied" };
+					}
 				}
 			}
 
