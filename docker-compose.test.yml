@@ -12,8 +12,10 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
       - API_PORT=3000
-      - NODE_ENV=development
+      - NODE_ENV=production
+      - MAIN_DOMAIN=test.ebutugrabkizmaz.com.tr
     depends_on:
       postgres:
         condition: service_healthy
