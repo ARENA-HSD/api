@@ -511,6 +511,88 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
     }
 }
 
+/**
+ * Resends the current phase event directly to the PLAYER after reconnect.
+ * This ensures the player gets the current question data even if they missed the original publish.
+ */
+async function resendPlayerPhaseEvent(ws: any, pin: string, state: any) {
+    const phase = state.currentPhase;
+
+    if (phase === 'QUESTION_START') {
+        // Re-send QUESTION_START with full question data
+        const quiz = await db.query.quizzes.findFirst({
+            where: eq(schema.quizzes.id, state.quizId),
+            with: {
+                questions: {
+                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
+                },
+            },
+        });
+        if (quiz && quiz.questions[state.currentQuestionIndex]) {
+            const question = quiz.questions[state.currentQuestionIndex];
+            const questionData: QuestionData = {
+                id: question.id,
+                text: question.text,
+                mediaUrl: question.mediaUrl || undefined,
+                timeLimit: question.timeLimit,
+                points: question.points || 1000,
+                correctIndex: question.correctIndex,
+                orderIndex: question.orderIndex,
+                options: question.options as any,
+            };
+            const filteredQuestion = filterQuestionByMode(questionData, state.mode);
+
+            // Override time/serverTime so the frontend timer shows the correct
+            // REMAINING time, not the full question duration.
+            // Frontend's startTimer(duration, srvTime) only uses `duration`.
+            const questionStartTime = await GamesHelper.getQuestionStartTime(pin);
+            if (questionStartTime) {
+                const elapsed = (Date.now() - questionStartTime) / 1000;
+                const remaining = Math.max(0, question.timeLimit - elapsed);
+                filteredQuestion.time = Math.ceil(remaining);
+                filteredQuestion.serverTime = Date.now();
+            }
+
+            ws.send(JSON.stringify({
+                type: 'QUESTION_START',
+                data: { ...filteredQuestion, mode: state.mode },
+            }));
+        }
+    } else if (phase === 'QUESTION_END') {
+        // Re-send QUESTION_END with correct answer and stats
+        const quiz = await db.query.quizzes.findFirst({
+            where: eq(schema.quizzes.id, state.quizId),
+            with: {
+                questions: {
+                    orderBy: (questions: any, { asc }: any) => [asc(questions.orderIndex)],
+                },
+            },
+        });
+        if (quiz && quiz.questions[state.currentQuestionIndex]) {
+            const question = quiz.questions[state.currentQuestionIndex];
+            ws.send(JSON.stringify({
+                type: 'QUESTION_END',
+                data: {
+                    correctIndex: question.correctIndex,
+                },
+            }));
+        }
+    } else if (phase === 'LEADERBOARD_RESULT') {
+        // Re-send LEADERBOARD_RESULT
+        ws.send(JSON.stringify({
+            type: 'LEADERBOARD_RESULT',
+            data: {},
+        }));
+    } else if (phase === 'GAME_OVER') {
+        // Re-send GAME_OVER
+        const finalScores = await GamesHelper.getLeaderboard(pin, 10);
+        ws.send(JSON.stringify({
+            type: 'GAME_OVER',
+            data: { finalScores },
+        }));
+    }
+}
+
 
 /**
  * Handle RECONNECT event — restores player/host session after connection drop
@@ -676,7 +758,10 @@ export async function handleReconnect(ws: any, data: ReconnectEvent['data']) {
         },
     }));
 
-    // 10. Notify host of player reconnection
+    // 10. Resend current phase event so the player can restore its UI
+    await resendPlayerPhaseEvent(ws, pin, state);
+
+    // 11. Notify host of player reconnection
     try {
         const { publish } = await import('../../core/pubsub/broadcaster');
         await publish(`game:${pin}:host`, JSON.stringify({
