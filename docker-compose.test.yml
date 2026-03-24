@@ -1,25 +1,71 @@
-name: Deploy to Test Environment
+services:
+  # --- ELYSIA APP (TEST) ---
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arena-backend-test
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000" # Sadece localhost üzerinden Nginx ile erişilecek
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - API_PORT=3000
+      - NODE_ENV=development
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - arena-network-test
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
-on:
-  push:
-    branches:
-      - test-production
+  # --- POSTGRES (TEST) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: arena-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data_test:/var/lib/postgresql/data
+    networks:
+      - arena-network-test
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
+  # --- REDIS (TEST) ---
+  redis:
+    image: redis:alpine
+    container_name: arena-redis-test
+    restart: unless-stopped
+    volumes:
+      - redis_data_test:/data
+    networks:
+      - arena-network-test
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
 
-      - name: Deploy to test
-        uses: appleboy/ssh-action@v1.0.3
-        with:
-          host: ${{ secrets.TEST_SSH_HOST }}
-          username: ${{ secrets.TEST_SSH_USERNAME }}
-          key: ${{ secrets.TEST_SSH_KEY }}
-          port: 43789
-          script: |
-            cd ~/git/api
-            git pull origin test-production
-            docker compose -f docker-compose.test.yml up -d --build --remove-orphans
+networks:
+  arena-network-test:
+    name: arena-network-test
+    driver: bridge
+
+volumes:
+  postgres_data_test:
+  redis_data_test:
