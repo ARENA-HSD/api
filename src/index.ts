@@ -14,11 +14,20 @@ import { cleanupExpiredInvitations } from "./modules/invitations/invitations.ser
 import { cors } from '@elysiajs/cors';
 import * as GamesHelper from './core/cache/repositories/game.repository';
 import * as GameService from './modules/games/games.service';
-import { register, httpRequestsTotal, httpRequestDurationSeconds, activeWebSocketConnections } from "./lib/metrics";
+import {
+  register,
+  httpRequestsTotal,
+  httpRequestDurationSeconds,
+  activeWebSocketConnections,
+  websocketConnectionsOpenedTotal,
+  websocketConnectionsClosedTotal,
+  websocketMessageErrorsTotal,
+} from "./lib/metrics";
 import { logEvent } from "./shared/helpers/log.helper";
 import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
 import { rateLimit } from 'elysia-rate-limit';
 import { handleSetNickname } from './modules/games/games.service';
+import { extractWebSocketMeta, sanitizeCloseReason } from './shared/helpers/ws-observability.helper';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -65,7 +74,7 @@ const activeSockets = new Set<any>();
 
 const app = new Elysia({
   serve: {
-    maxRequestBodySize: 1024 * 100, // 100KB payload limiti
+    maxRequestBodySize: 5 * 1024 * 1024, // 3MB image payload (base64 overhead dahil)
   },
 })
   .use(cors({
@@ -211,6 +220,9 @@ const app = new Elysia({
     idleTimeout: 240,
     sendPings: true,
     async open(ws) {
+      const meta = extractWebSocketMeta(ws);
+
+      (ws.data as any).connectionMeta = meta;
       console.log('WebSocket connected:', ws.id);
       // Add to active sockets
       activeSockets.add(ws);
@@ -218,6 +230,20 @@ const app = new Elysia({
       trackSocketOpen(ws.id);
       // Prometheus: WebSocket bağlantı sayısını artır
       activeWebSocketConnections.inc();
+      websocketConnectionsOpenedTotal.labels(meta.platform).inc();
+
+      logEvent({
+        event: 'ws.connection.open',
+        level: 'INFO',
+        source: 'system',
+        data: {
+          socketId: ws.id,
+          platform: meta.platform,
+          ip: meta.clientIp,
+          cfRay: meta.cfRay,
+          userAgent: meta.userAgent,
+        }
+      });
     },
 
     async message(ws, message: any) {
@@ -252,6 +278,9 @@ const app = new Elysia({
             await GameService.handleNextQuestion(ws, data);
             break;
           default:
+            const connectionMeta = (ws.data as any)?.connectionMeta ?? extractWebSocketMeta(ws);
+            websocketMessageErrorsTotal.labels(connectionMeta.platform, 'unknown_event').inc();
+
             logEvent({ event: 'ws.unknown_event', level: 'WARNING', source: 'code', data: { type, socketId: ws.id } });
             ws.send(JSON.stringify({
               type: 'ERROR',
@@ -259,8 +288,22 @@ const app = new Elysia({
             }));
         }
       } catch (error) {
+        const connectionMeta = (ws.data as any)?.connectionMeta ?? extractWebSocketMeta(ws);
+        websocketMessageErrorsTotal.labels(connectionMeta.platform, 'message_parse_or_handler').inc();
+
         console.error('WebSocket message error:', error);
-        logEvent({ event: 'ws.parse.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown', socketId: ws.id } });
+        logEvent({
+          event: 'ws.parse.error',
+          level: 'ERROR',
+          source: 'code',
+          data: {
+            error: error instanceof Error ? error.message : 'unknown',
+            socketId: ws.id,
+            platform: connectionMeta.platform,
+            cfRay: connectionMeta.cfRay,
+            ip: connectionMeta.clientIp,
+          }
+        });
         ws.send(JSON.stringify({
           type: 'ERROR',
           data: { message: 'Internal server error' },
@@ -268,11 +311,30 @@ const app = new Elysia({
       }
     },
 
-    async close(ws) {
+    async close(ws, code, reason) {
       const socketId = ws.id;
       const metadata = ws.data as any;
+      const connectionMeta = metadata?.connectionMeta ?? extractWebSocketMeta(ws);
+      const closeCode = typeof code === 'number' ? String(code) : 'unknown';
+      const closeReason = sanitizeCloseReason(reason);
 
       console.log('WebSocket disconnected:', socketId);
+      websocketConnectionsClosedTotal.labels(connectionMeta.platform, closeCode).inc();
+
+      logEvent({
+        event: 'ws.connection.close',
+        level: closeCode === '1000' ? 'INFO' : 'WARNING',
+        source: 'system',
+        data: {
+          socketId,
+          platform: connectionMeta.platform,
+          closeCode,
+          closeReason,
+          cfRay: connectionMeta.cfRay,
+          ip: connectionMeta.clientIp,
+          userAgent: connectionMeta.userAgent,
+        }
+      });
 
       // Remove from active sockets so we don't publish to closed sockets
       try {

@@ -38,3 +38,24 @@ export const activeWebSocketConnections = new Gauge({
     help: 'Number of active WebSocket connections',
     registers: [register]
 });
+
+export const websocketConnectionsOpenedTotal = new Counter({
+    name: 'websocket_connections_opened_total',
+    help: 'Total number of opened WebSocket connections',
+    labelNames: ['platform'],
+    registers: [register]
+});
+
+export const websocketConnectionsClosedTotal = new Counter({
+    name: 'websocket_connections_closed_total',
+    help: 'Total number of closed WebSocket connections',
+    labelNames: ['platform', 'close_code'],
+    registers: [register]
+});
+
+export const websocketMessageErrorsTotal = new Counter({
+    name: 'websocket_message_errors_total',
+    help: 'Total number of WebSocket message processing errors',
+    labelNames: ['platform', 'error_type'],
+    registers: [register]
+});
