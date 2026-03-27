@@ -51,7 +51,9 @@ export const questionsRoutes = new Elysia({
             error.message.includes("correctIndex must") ||
             error.message.includes("timeLimit must") ||
             error.message.includes("points must") ||
-            error.message.includes("Text must")
+            error.message.includes("Text must") ||
+            error.message.includes("Image") ||
+            error.message.includes("Only jpeg")
           ) {
             set.status = 400;
             return { success: false, message: error.message };
@@ -65,7 +67,7 @@ export const questionsRoutes = new Elysia({
     {
       body: t.Object({
         text: t.String({ minLength: 5, maxLength: 1000 }),
-        mediaUrl: t.Optional(t.String({ maxLength: 2048 })),
+        mediaBase64: t.Optional(t.String({ maxLength: 6000000 })),
         timeLimit: t.Number({ minimum: 10, maximum: 120 }),
         points: t.Number({ minimum: 100, maximum: 1000 }),
         options: t.Array(
@@ -255,7 +257,9 @@ export const questionsRoutes = new Elysia({
             error.message.includes("correctIndex must") ||
             error.message.includes("timeLimit must") ||
             error.message.includes("points must") ||
-            error.message.includes("Text must")
+            error.message.includes("Text must") ||
+            error.message.includes("Image") ||
+            error.message.includes("Only jpeg")
           ) {
             set.status = 400;
             return { success: false, message: error.message };
@@ -274,7 +278,7 @@ export const questionsRoutes = new Elysia({
       }),
       body: t.Object({
         text: t.Optional(t.String({ minLength: 5, maxLength: 1000 })),
-        mediaUrl: t.Optional(t.String({ maxLength: 2048 })),
+        mediaBase64: t.Optional(t.String({ maxLength: 6000000 })),
         timeLimit: t.Optional(t.Number({ minimum: 10, maximum: 120 })),
         points: t.Optional(t.Number({ minimum: 100, maximum: 1000 })),
         options: t.Array(

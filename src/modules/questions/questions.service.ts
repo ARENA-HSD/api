@@ -1,10 +1,11 @@
 import { eq, and, asc, desc } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
 import { verifyQuizBelongsToOrg, validateOrgAccessAndGetOrgId } from "../../middleware/rbac.middleware";
+import { deleteR2ObjectByUrl, uploadBase64ImageToR2 } from "../../shared/helpers/r2-upload.helper";
 
 export type CreateQuestionData = {
     text: string;
-    mediaUrl?: string;
+    mediaBase64?: string;
     timeLimit: number;
     points: number;
     options: string[];
@@ -14,7 +15,7 @@ export type CreateQuestionData = {
 
 export type UpdateQuestionData = {
     text?: string;
-    mediaUrl?: string;
+    mediaBase64?: string;
     timeLimit?: number;
     points?: number;
     options?: QuestionOption[];
@@ -33,7 +34,7 @@ interface QuestionOption {
 
 export interface CreateQuestionRequest {
     text: string;
-    mediaUrl?: string;
+    mediaBase64?: string;
     timeLimit: number;
     points?: number;
     correctIndex: number;
@@ -42,7 +43,7 @@ export interface CreateQuestionRequest {
 
 export interface UpdateQuestionRequest {
     text?: string;
-    mediaUrl?: string;
+    mediaBase64?: string;
     timeLimit?: number;
     points?: number;
     correctIndex?: number;
@@ -83,13 +84,17 @@ export async function createQuestion(
         ? existingQuestions[0].orderIndex + 1
         : 0;
 
+    const mediaUrl = questionData.mediaBase64
+        ? await uploadBase64ImageToR2(questionData.mediaBase64, `questions/${quizId}`)
+        : undefined;
+
     // 7. Create question
     const [newQuestion] = await db
         .insert(schema.questions)
         .values({
             quizId,
             text: questionData.text,
-            mediaUrl: questionData.mediaUrl,
+            mediaUrl,
             timeLimit: questionData.timeLimit,
             points: questionData.points || 1000,
             correctIndex: questionData.correctIndex,
@@ -212,10 +217,26 @@ export async function updateQuestion(
         throw new Error("Question not found");
     }
 
+    const existingMediaUrl = typeof existingQuestion.mediaUrl === "string"
+        ? existingQuestion.mediaUrl
+        : null;
+
     // Build update object
     const updates: Partial<typeof schema.questions.$inferInsert> = {};
+    let mediaUrlToDelete: string | null = null;
     if (data.text !== undefined) updates.text = data.text;
-    if (data.mediaUrl !== undefined) updates.mediaUrl = data.mediaUrl;
+    if (data.mediaBase64 !== undefined) {
+        if (data.mediaBase64) {
+            const nextMediaUrl = await uploadBase64ImageToR2(data.mediaBase64, `questions/${quizId}`);
+            updates.mediaUrl = nextMediaUrl;
+            if (existingMediaUrl && existingMediaUrl !== nextMediaUrl) {
+                mediaUrlToDelete = existingMediaUrl;
+            }
+        } else {
+            updates.mediaUrl = null;
+            mediaUrlToDelete = existingMediaUrl;
+        }
+    }
     if (data.timeLimit !== undefined) updates.timeLimit = data.timeLimit;
     if (data.points !== undefined) updates.points = data.points;
     if (data.options !== undefined) updates.options = data.options;
@@ -228,6 +249,14 @@ export async function updateQuestion(
         .set(updates)
         .where(eq(schema.questions.id, questionId))
         .returning();
+
+    if (mediaUrlToDelete) {
+        try {
+            await deleteR2ObjectByUrl(mediaUrlToDelete);
+        } catch {
+            // Best effort cleanup: do not fail successful DB update on external storage errors.
+        }
+    }
 
     return updated;
 }
@@ -270,11 +299,23 @@ export async function deleteQuestion(
         throw new Error("Question not found");
     }
 
+    const mediaUrlToDelete = typeof existingQuestion.mediaUrl === "string"
+        ? existingQuestion.mediaUrl
+        : null;
+
     // Delete question
     const [deleted] = await db
         .delete(schema.questions)
         .where(eq(schema.questions.id, questionId))
         .returning({ id: schema.questions.id });
+
+    if (mediaUrlToDelete) {
+        try {
+            await deleteR2ObjectByUrl(mediaUrlToDelete);
+        } catch {
+            // Best effort cleanup: keep successful DB delete even if storage cleanup fails.
+        }
+    }
 
     return deleted;
 }

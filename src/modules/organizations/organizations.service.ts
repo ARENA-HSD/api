@@ -1,22 +1,17 @@
-import { eq, and } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, schema } from "../../core/database/client";
+import { deleteR2ObjectByUrl, deleteR2ObjectsByUrls, uploadBase64ImageToR2 } from "../../shared/helpers/r2-upload.helper";
 
 export type CreateOrganizationData = {
     name: string;
     subdomain: string;
-    branding?: {
-        logoUrl?: string;
-        css?: string;
-    };
+    branding?: Record<string, string>;
 };
 
 export type UpdateOrganizationData = {
     name?: string;
     subdomain?: string;
-    branding?: {
-        logoUrl?: string;
-        css?: string;
-    };
+    branding?: Record<string, string>;
 };
 
 /**
@@ -55,13 +50,20 @@ export async function createOrganization(
         throw new Error("Subdomain already exists");
     }
 
+    const normalizedSubdomain = data.subdomain.toLocaleLowerCase();
+    const brandingPayload = { ...(data.branding || {}) };
+    const logoBase64 = brandingPayload.logoBase64;
+    if (logoBase64) {
+        delete brandingPayload.logoBase64;
+    }
+
     // Create organization
     const [organization] = await db
         .insert(schema.organizations)
         .values({
             name: data.name,
-            subdomain: data.subdomain.toLocaleLowerCase(),
-            branding: data.branding || {},
+            subdomain: normalizedSubdomain,
+            branding: brandingPayload,
             ownerId,
         })
         .returning();
@@ -72,6 +74,26 @@ export async function createOrganization(
         userId: ownerId,
         role: "SUPER_ADMIN",
     });
+
+    if (logoBase64) {
+        const logoUrl = await uploadBase64ImageToR2(
+            logoBase64,
+            `organizations/${organization.id}/branding`
+        );
+
+        const [updatedOrganization] = await db
+            .update(schema.organizations)
+            .set({
+                branding: {
+                    ...brandingPayload,
+                    logoUrl,
+                },
+            })
+            .where(eq(schema.organizations.id, organization.id))
+            .returning();
+
+        return updatedOrganization;
+    }
 
     return organization;
 }
@@ -166,15 +188,51 @@ export async function updateOrganization(
 
     // Update organization
     const updates: Partial<typeof schema.organizations.$inferInsert> = {};
+    const currentBranding = organization.branding as Record<string, unknown> | null;
+    const currentLogoUrl = currentBranding && typeof currentBranding.logoUrl === "string"
+        ? currentBranding.logoUrl
+        : null;
+    let logoUrlToDelete: string | null = null;
+
     if (data.name) updates.name = data.name;
     if (data.subdomain) updates.subdomain = data.subdomain.toLocaleLowerCase();
-    if (data.branding) updates.branding = data.branding;
+    if (data.branding) {
+        const brandingPayload = { ...data.branding };
+        const logoBase64 = brandingPayload.logoBase64;
+
+        if (logoBase64) {
+            const newLogoUrl = await uploadBase64ImageToR2(
+                logoBase64,
+                `organizations/${organization.id}/branding`
+            );
+            brandingPayload.logoUrl = newLogoUrl;
+            delete brandingPayload.logoBase64;
+            if (currentLogoUrl && currentLogoUrl !== newLogoUrl) {
+                logoUrlToDelete = currentLogoUrl;
+            }
+        } else if (Object.prototype.hasOwnProperty.call(brandingPayload, "logoUrl")) {
+            const nextLogoUrl = brandingPayload.logoUrl;
+            if (currentLogoUrl && currentLogoUrl !== nextLogoUrl) {
+                logoUrlToDelete = currentLogoUrl;
+            }
+        }
+
+        updates.branding = brandingPayload;
+    }
 
     const [updated] = await db
         .update(schema.organizations)
         .set(updates)
         .where(eq(schema.organizations.id, organization.id))
         .returning();
+
+    if (logoUrlToDelete) {
+        try {
+            await deleteR2ObjectByUrl(logoUrlToDelete);
+        } catch {
+            // Best effort cleanup: keep successful DB update even if storage cleanup fails.
+        }
+    }
 
     return updated;
 }
@@ -193,6 +251,34 @@ export async function deleteOrganization(subdomain: string, userId: string) {
     if (organization.ownerId !== userId) {
         throw new Error("Only the organization owner can delete it");
     }
+
+    const quizzes = await db
+        .select({ id: schema.quizzes.id })
+        .from(schema.quizzes)
+        .where(eq(schema.quizzes.orgId, organization.id));
+
+    const quizIds = quizzes.map((quiz) => quiz.id);
+    const questionMediaRows = quizIds.length > 0
+        ? await db
+            .select({ mediaUrl: schema.questions.mediaUrl })
+            .from(schema.questions)
+            .where(inArray(schema.questions.quizId, quizIds))
+        : [];
+
+    const branding = organization.branding as Record<string, unknown> | null;
+    const logoUrl = branding && typeof branding.logoUrl === "string"
+        ? branding.logoUrl
+        : null;
+
+    const urlsToDelete = questionMediaRows
+        .map((row) => row.mediaUrl)
+        .filter((url): url is string => typeof url === "string" && url.length > 0);
+
+    if (logoUrl) {
+        urlsToDelete.push(logoUrl);
+    }
+
+    await deleteR2ObjectsByUrls(urlsToDelete);
 
     // Delete organization (cascade will delete members, quizzes, etc.)
     const [deleted] = await db
