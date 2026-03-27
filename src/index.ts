@@ -162,7 +162,7 @@ const app = new Elysia({
           return server?.requestIP(request)?.address ?? '127.0.0.1';
         },
         duration: 60 * 1000, // 60 seconds
-        max: 50, // 50 requests per minute
+        max: 1000, // 50'den 1000'e çıkarıldı (Okul/Toplu alanlarda aynı IP'den gelenler engellenmesin diye)
       }))
   )
   .get("/", () => { return "API is working."; }, { detail: { summary: 'Main endpoint' } })
