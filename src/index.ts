@@ -72,7 +72,9 @@ const app = new Elysia({
     origin: [
       /^https?:\/\/(.*?\.)?localhost:\d+$/,
       "https://quizstrike.com.tr",
-      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/
+      /^https?:\/\/(.*?\.)?quizstrike\.com\.tr$/,
+      "https://test.ebutugrabkizmaz.com.tr",
+      /^https?:\/\/(.*?\.)?test\.ebutugrabkizmaz\.com\.tr$/
     ],
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'Upgrade', 'Connection', 'x-organization-domain'],
@@ -145,19 +147,19 @@ const app = new Elysia({
       })
       .use(rateLimit({
         generator: (request, server) => {
-        // 1. Öncelikli olarak Cloudflare'in ilettiği gerçek kullanıcı IP'sini al
-        const cfIp = request.headers.get('cf-connecting-ip');
-        if (cfIp) return cfIp;
+          // 1. Öncelikli olarak Cloudflare'in ilettiği gerçek kullanıcı IP'sini al
+          const cfIp = request.headers.get('cf-connecting-ip');
+          if (cfIp) return cfIp;
 
-        // 2. Fallback olarak genel proxy başlığını kontrol et (isteğe bağlı)
-        const forwardedFor = request.headers.get('x-forwarded-for');
-        if (forwardedFor) {
-          // X-Forwarded-For virgülle ayrılmış birden fazla IP içerebilir, ilkini (orijinal client) alıyoruz
-          return forwardedFor.split(',')[0].trim();
-        }
+          // 2. Fallback olarak genel proxy başlığını kontrol et (isteğe bağlı)
+          const forwardedFor = request.headers.get('x-forwarded-for');
+          if (forwardedFor) {
+            // X-Forwarded-For virgülle ayrılmış birden fazla IP içerebilir, ilkini (orijinal client) alıyoruz
+            return forwardedFor.split(',')[0].trim();
+          }
 
-        // 3. Herhangi bir header yoksa (örn. geliştirme ortamındaysan) varsayılan Bun IP metoduna düş
-        return server?.requestIP(request)?.address ?? '127.0.0.1';
+          // 3. Herhangi bir header yoksa (örn. geliştirme ortamındaysan) varsayılan Bun IP metoduna düş
+          return server?.requestIP(request)?.address ?? '127.0.0.1';
         },
         duration: 60 * 1000, // 60 seconds
         max: 50, // 50 requests per minute

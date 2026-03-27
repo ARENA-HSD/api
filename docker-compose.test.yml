@@ -1,0 +1,73 @@
+services:
+  # --- ELYSIA APP (TEST) ---
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: arena-backend-test
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:3000:3000" # Sadece localhost üzerinden Nginx ile erişilecek
+    environment:
+      - DATABASE_URL=${DATABASE_URL}
+      - REDIS_URL=${REDIS_URL}
+      - JWT_SECRET=${JWT_SECRET}
+      - TURNSTILE_SECRET_KEY=${TURNSTILE_SECRET_KEY}
+      - API_PORT=3000
+      - NODE_ENV=production
+      - MAIN_DOMAIN=test.ebutugrabkizmaz.com.tr
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - arena-network-test
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # --- POSTGRES (TEST) ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: arena-postgres-test
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data_test:/var/lib/postgresql/data
+    networks:
+      - arena-network-test
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U ${DB_USER} -d ${DB_NAME}" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  # --- REDIS (TEST) ---
+  redis:
+    image: redis:alpine
+    container_name: arena-redis-test
+    restart: unless-stopped
+    volumes:
+      - redis_data_test:/data
+    networks:
+      - arena-network-test
+    healthcheck:
+      test: [ "CMD", "redis-cli", "ping" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+networks:
+  arena-network-test:
+    name: arena-network-test
+    driver: bridge
+
+volumes:
+  postgres_data_test:
+  redis_data_test:

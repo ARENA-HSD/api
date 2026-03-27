@@ -50,10 +50,11 @@ find "$BACKUP_DIR" -name "*_backup_*.gz" -type f -mtime +7 -exec rm {} \;
 # -------------------------------------------------------------
 REMOTE_USER="root"
 REMOTE_IP="123.45.67.89"
+REMOTE_PORT="22"
 REMOTE_DEST="/root/arena-backups"
 
 # rsync is very fast because it only transfers changed/newly added files.
 # Push the backup to the remote server using the specific SSH key:
-rsync -avz -e "ssh -i $HOME/.ssh/server_backup_ssh_key" --delete "$BACKUP_DIR/" "${REMOTE_USER}@${REMOTE_IP}:${REMOTE_DEST}"
+rsync -avz -e "ssh -i $HOME/.ssh/server_backup_ssh_key -p $REMOTE_PORT" --delete "$BACKUP_DIR/" "${REMOTE_USER}@${REMOTE_IP}:${REMOTE_DEST}"
 
 echo "[$TIMESTAMP] Backup process completed!"
