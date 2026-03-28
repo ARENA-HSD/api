@@ -37,6 +37,8 @@ read -p "CLOUDFLARE_R2_ACCESS_KEY: " CLOUDFLARE_R2_ACCESS_KEY
 read -p "CLOUDFLARE_R2_SECRET_KEY: " CLOUDFLARE_R2_SECRET_KEY
 read -p "CLOUDFLARE_S3_ENDPOINT: " CLOUDFLARE_S3_ENDPOINT
 read -p "CLOUDFLARE_ACCOUNT_ID: " CLOUDFLARE_ACCOUNT_ID
+read -p "CLOUDFLARE_R2_BUCKET: " CLOUDFLARE_R2_BUCKET
+read -p "CLOUDFLARE_R2_PUBLIC_URL: " CLOUDFLARE_R2_PUBLIC_URL
 
 cat <<EOF > .env
 # --- Veritabanı Ayarları ---
@@ -72,6 +74,8 @@ CLOUDFLARE_R2_ACCESS_KEY=${CLOUDFLARE_R2_ACCESS_KEY}
 CLOUDFLARE_R2_SECRET_KEY=${CLOUDFLARE_R2_SECRET_KEY}
 CLOUDFLARE_S3_ENDPOINT=${CLOUDFLARE_S3_ENDPOINT}
 CLOUDFLARE_ACCOUNT_ID=${CLOUDFLARE_ACCOUNT_ID}
+CLOUDFLARE_R2_BUCKET=${CLOUDFLARE_R2_BUCKET}
+CLOUDFLARE_R2_PUBLIC_URL=${CLOUDFLARE_R2_PUBLIC_URL}
 EOF
 
 echo "Created api .env file"
@@ -100,6 +104,7 @@ echo "Success. Frontend container is running."
 cd ../
 
 echo -e "\n--- Automated Backup and SSH Configuration ---"
+chmod +x backup_db.sh
 read -p "Do you want to setup automated remote rsync backup? (y/n): " DO_BACKUP
 if [[ "$DO_BACKUP" =~ ^[Yy]$ ]]; then
     # Create SSH key if it doesn't exist

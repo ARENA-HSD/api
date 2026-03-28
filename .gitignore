@@ -43,3 +43,6 @@ yarn-error.log*
 **/*.log
 package-lock.json
 **/*.bun
+
+# Sensitive server scripts (contains server IPs and credentials)
+backup_db.sh
