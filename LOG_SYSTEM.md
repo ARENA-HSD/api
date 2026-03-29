@@ -52,6 +52,8 @@ HSD Arena API'deki olayları **Telegram Forum grubu** üzerinden takip eden webh
 | Games | `game.join.invalid_pin` | WARNING |
 | Games | `game.start.denied` | WARNING |
 | Games | `game.player.disconnected` | WARNING |
+| WebSocket | `ws.connection.open` | INFO |
+| WebSocket | `ws.connection.close` | INFO / WARNING |
 | WebSocket | `ws.unknown_event` | WARNING |
 | WebSocket | `ws.parse.error` | ERROR |
 | WebSocket | `ws.broadcast.error` | ERROR |

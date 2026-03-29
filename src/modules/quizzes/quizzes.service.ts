@@ -9,6 +9,7 @@ import {
     validateOrgAccessAndGetOrgId,
     verifyQuizBelongsToOrg
 } from '../../middleware/rbac.middleware';
+import { deleteR2ObjectsByUrls } from '../../shared/helpers/r2-upload.helper';
 
 // TYPE DEFINITIONS
 
@@ -241,6 +242,17 @@ export async function deleteQuiz(
     if (!belongs) {
         return { status: 404, success: false, message: 'Quiz not found' };
     }
+
+    const questionMediaRows = await db
+        .select({ mediaUrl: schema.questions.mediaUrl })
+        .from(schema.questions)
+        .where(eq(schema.questions.quizId, quizId));
+
+    const mediaUrls = questionMediaRows
+        .map((row) => row.mediaUrl)
+        .filter((url): url is string => typeof url === 'string' && url.length > 0);
+
+    await deleteR2ObjectsByUrls(mediaUrls);
 
     // 4. Soft delete (set isDeleted = true)
     await db
