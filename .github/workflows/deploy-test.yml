@@ -18,7 +18,7 @@ jobs:
           host: ${{ secrets.TEST_SSH_HOST }}
           username: ${{ secrets.TEST_SSH_USERNAME }}
           key: ${{ secrets.TEST_SSH_KEY }}
-          port: 43789
+          port: 29319
           script: |
             cd ~/git/api
             git pull origin test-production
