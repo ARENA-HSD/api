@@ -219,8 +219,10 @@ const app = new Elysia({
     detail: { summary: 'Database health check endpoint' }
   })
   .ws('/ws', {
-    idleTimeout: 240,
-    sendPings: true,
+    idleTimeout: 32, // 32 saniye - keepalive pings bu süreye hit etmeden gönderilecek
+    sendPings: true, // Otomatik ping gönder
+    version: 13, // WebSocket protokol versiyonu
+    backpressure: 'drain', // Backpressure handling - önemli!
     async open(ws) {
       const meta = extractWebSocketMeta(ws);
 
