@@ -32,9 +32,15 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           message: "Organization created successfully",
         };
       } catch (error) {
-        if (error instanceof Error && error.message.includes("Subdomain")) {
-          set.status = 409;
-          return { success: false, message: error.message };
+        if (error instanceof Error) {
+          if (error.message.includes("Subdomain")) {
+            set.status = 409;
+            return { success: false, message: error.message };
+          }
+          if (error.message.includes("Image") || error.message.includes("Only jpeg")) {
+            set.status = 400;
+            return { success: false, message: error.message };
+          }
         }
         set.status = 500;
         logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
@@ -52,7 +58,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         // Esnek key-value branding yapisi (key max 50, value max 500 karakter)
         branding: t.Optional(t.Record(
           t.String({ maxLength: 50 }),
-          t.String({ maxLength: 500 }),
+          t.String({ maxLength: 6000000 }),
           { default: { primary: "#97abf5", secondary: "#ffffff", logoUrl: "https://example.com/logo.png" } }
         )),
       }),
@@ -194,6 +200,10 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
             set.status = 409;
             return { success: false, message: error.message };
           }
+          if (error.message.includes("Image") || error.message.includes("Only jpeg")) {
+            set.status = 400;
+            return { success: false, message: error.message };
+          }
         }
         set.status = 500;
         logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
@@ -210,7 +220,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         // Esnek key-value branding yapisi (key max 50, value max 500 karakter)
         branding: t.Optional(t.Record(
           t.String({ maxLength: 50 }),
-          t.String({ maxLength: 500 }),
+          t.String({ maxLength: 6000000 }),
           { default: { primary: "#97abf5", secondary: "#ffffff", logoUrl: "https://example.com/logo.png" } }
         )),
       }),

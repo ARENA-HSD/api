@@ -3,13 +3,18 @@ auth_enabled: false
 server:
   http_listen_port: 3100
   grpc_listen_port: 9096
+  # Büyük log sorgularında hata vermemesi için gRPC mesaj sınırlarını artırıyoruz (100MB)
+  grpc_server_max_recv_msg_size: 104857600
+  grpc_server_max_send_msg_size: 104857600
+  http_server_read_timeout: 3m
+  http_server_write_timeout: 3m
 
 common:
-  path_prefix: /tmp/loki
+  path_prefix: /loki
   storage:
     filesystem:
-      chunks_directory: /tmp/loki/chunks
-      rules_directory: /tmp/loki/rules
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
   replication_factor: 1
   ring:
     kvstore:
@@ -27,6 +32,24 @@ schema_config:
 
 limits_config:
   allow_structured_metadata: false
+  # Grafana Drilldown (Explore Logs) çok fazla series/metric sorguladığı için limitleri artırıyoruz
+  max_query_series: 100000
+  max_query_parallelism: 32
+  max_entries_limit_per_query: 50000
+  max_query_length: 720h
+
+querier:
+  max_concurrent: 16
+
+query_range:
+  align_queries_with_step: true
+  max_retries: 5
+  parallelise_shardable_queries: true
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
 
 ruler:
   alertmanager_url: http://localhost:9093
