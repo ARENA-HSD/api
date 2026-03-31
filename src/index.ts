@@ -320,6 +320,7 @@ const app = new Elysia({
       const metadata = ws.data as any;
       const connectionMeta = metadata?.connectionMeta ?? extractWebSocketMeta(ws);
       const closeCode = typeof code === 'number' ? String(code) : 'unknown';
+      console.log(`WebSocket close event: socketId=${socketId}, code=${closeCode}, reason=${reason}`);
       const closeReason = sanitizeCloseReason(reason);
 
       console.log('WebSocket disconnected:', socketId);
