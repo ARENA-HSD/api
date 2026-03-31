@@ -219,10 +219,8 @@ const app = new Elysia({
     detail: { summary: 'Database health check endpoint' }
   })
   .ws('/ws', {
-    idleTimeout: 60,
+    idleTimeout: 240,
     sendPings: true, // Otomatik ping gönder
-    version: 13, // WebSocket protokol versiyonu
-    backpressure: 'drain', // Backpressure handling - önemli!
     async open(ws) {
       const meta = extractWebSocketMeta(ws);
 
@@ -257,6 +255,13 @@ const app = new Elysia({
         const data = event.data;
 
         switch (type) {
+          case 'PING':
+          case 'HEARTBEAT':
+            ws.send(JSON.stringify({
+              type: 'PONG',
+              data: { ts: Date.now() },
+            }));
+            break;
           case 'JOIN_ROOM':
             await GameService.handleJoinRoom(ws, data);
             break;
