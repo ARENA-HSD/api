@@ -5,7 +5,7 @@
 # "Full Chain" (Tam Zincir) oluşturur.
 
 CERT_PATH="./config/nginx/origin.cert.pem"
-ROOT_CA_URL="https://developers.cloudflare.com/certs/origin_ca_rsa_root.pem"
+ROOT_CA_URL="https://developers.cloudflare.com/ssl/static/origin_ca_rsa_root.pem"
 ROOT_CA_TMP="/tmp/cloudflare_root.pem"
 
 # 1. Dosya Kontrolü
