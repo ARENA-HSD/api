@@ -3,6 +3,7 @@ import { Elysia } from "elysia";
 import { db, schema } from "./core/database/client";
 import { openapi } from "@elysiajs/openapi";
 import { gamesRoutes } from "./modules/games/games.controller";
+import { pollingRoutes } from "./modules/games/games.polling";
 import { usersRoutes } from "./modules/users/users.controller";
 import { orgRoutes } from "./modules/organizations/organizations.controller";
 import { questionsRoutes } from "./modules/questions/questions.controller";
@@ -151,6 +152,7 @@ const app = new Elysia({
       .use(orgRoutes)
       .use(adminRoutes)
       .use(gamesRoutes)
+      .use(pollingRoutes)
       .post('/rate-limit', () => {
         return 'Rate limit test';
       })
