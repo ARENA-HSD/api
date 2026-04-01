@@ -467,7 +467,7 @@ export async function getLeaderboard(
         limit - 1,
         'WITHSCORES'
     );
-    console.log(`[DEBUG] getLeaderboard: key=${getLeaderboardKey(pin)} results=`, JSON.stringify(results));
+    //console.log(`[DEBUG] getLeaderboard: key=${getLeaderboardKey(pin)} results=`, JSON.stringify(results));
 
     const leaderboard: LeaderboardEntry[] = [];
 

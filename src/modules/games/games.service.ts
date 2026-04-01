@@ -457,14 +457,15 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
             // Send answer stat update
             const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
             const activePlayers = await GamesHelper.countActivePlayers(pin);
-            ws.send(JSON.stringify({
-                type: 'ANSWER_STAT_UPDATE',
-                data: { answeredCount, totalPlayers: activePlayers },
-            }));
 
             ws.send(JSON.stringify({
                 type: 'QUESTION_START',
                 data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
+            }));
+
+            ws.send(JSON.stringify({
+                type: 'ANSWER_STAT_UPDATE',
+                data: { answeredCount, totalPlayers: activePlayers },
             }));
         }
     } else if (phase === 'QUESTION_END') {
@@ -993,17 +994,18 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
 
     const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
     const activePlayers = await GamesHelper.countActivePlayers(pin);
+
+    await publish(`game:${pin}:host`, JSON.stringify({
+        type: 'QUESTION_START',
+        data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
+    }));
+
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'ANSWER_STAT_UPDATE',
         data: {
             answeredCount,
             totalPlayers: activePlayers,
         },
-    }));
-
-    await publish(`game:${pin}:host`, JSON.stringify({
-        type: 'QUESTION_START',
-        data: { ...filteredPersonalQuestion, mode: 'PERSONAL' },
     }));
 
     // PDF SPEC: To players (use game mode)
