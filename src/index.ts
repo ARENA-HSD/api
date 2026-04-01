@@ -443,7 +443,13 @@ app.listen(3000);
 
 import('./core/pubsub/broadcaster').then(({ setPublisher }) => {
   setPublisher(async (channel: string, message: string) => {
+    // 1. Send to native Bun WebSockets
     app.server?.publish(channel, message);
+    
+    // 2. Send to Redis Pub/Sub so HTTP Long-Polling clients receive them
+    import('./core/cache/repositories/game.repository').then(({ redis }) => {
+      redis.publish(channel, message).catch(err => console.error('Redis publish error:', err));
+    }).catch(err => console.error('Failed to load redis for publishing', err));
   });
 }).catch(err => {
   console.error('Failed to set publisher', err);
