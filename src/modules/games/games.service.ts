@@ -1127,7 +1127,8 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
         const answeredCount = await GamesHelper.countAnsweredPlayers(pin);
         const activePlayers = await GamesHelper.countActivePlayers(pin);
         const currentState = await GamesHelper.getGameState(pin);
-        ws.publish(`game:${pin}:host`, JSON.stringify({
+        const { publish } = await import('../../core/pubsub/broadcaster');
+        await publish(`game:${pin}:host`, JSON.stringify({
             type: 'ANSWER_STAT_UPDATE',
             data: {
                 answeredCount,
@@ -1301,15 +1302,34 @@ export async function handleNextQuestion(ws: any, data: NextQuestionEvent['data'
         const finalScores = await GamesHelper.getLeaderboard(pin, 10);
 
         const { publish } = await import('../../core/pubsub/broadcaster');
-        await publish(`game:${pin}`, JSON.stringify({
-            type: 'GAME_OVER',
-            data: { finalScores },
-        }));
-
+        
+        // 1. To host: full top 10
         await publish(`game:${pin}:host`, JSON.stringify({
             type: 'GAME_OVER',
             data: { finalScores },
         }));
+
+        // 2. To players: individualized payloads with rank and score
+        try {
+            const playerSockets = await GamesHelper.getAllPlayerSockets(pin);
+            for (const sid of playerSockets) {
+                const pInfo = await GamesHelper.getPlayerInfo(pin, sid);
+                if (!pInfo) continue;
+                
+                const myRank = await GamesHelper.getCurrentRank(pin, pInfo.nickname);
+                
+                await publish(`game:${pin}:player:${sid}`, JSON.stringify({
+                    type: 'GAME_OVER',
+                    data: {
+                        finalScores,
+                        myRank,
+                        myTotalScore: pInfo.score
+                    },
+                }));
+            }
+        } catch (err) {
+            console.error('Failed to publish individualized GAME_OVER', err);
+        }
 
         // Cleanup game after 5 minutes
         setTimeout(() => GamesHelper.cleanupGame(pin), 5 * 60 * 1000);
