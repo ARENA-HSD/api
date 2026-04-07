@@ -12,6 +12,21 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Setup Bun environment
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: |
+          cd api
+          bun install
+
+      - name: Run Tests
+        run: |
+          cd api
+          bun test
+
       - name: Deploy to test
         uses: appleboy/ssh-action@v1.0.3
         with:
