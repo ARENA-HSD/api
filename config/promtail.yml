@@ -25,25 +25,29 @@ scrape_configs:
       - host: unix:///var/run/docker.sock
         refresh_interval: 5s
     relabel_configs:
-      # Monitoring araçlarının kendi loglarını düşür — uygulama loglarıyla karışmasın
+      # Monitoring araçlarının kendi loglarını düşür (Loki, Blackbox, Promtail)
       - source_labels: ['__meta_docker_container_name']
-        regex: '/arena-blackbox|/arena-loki|/arena-promtail'
+        regex: '^/(arena-blackbox|arena-loki|arena-promtail|arena-prometheus)$'
         action: drop
 
-      # Container adını 'container' label'ına ata (başındaki / karakterini sil)
+      # Container adını 'container' label'ına ata
       - source_labels: ['__meta_docker_container_name']
-        regex: '/(.+)'
+        regex: '^/(.+)$'
         target_label: 'container'
 
       # Container adını 'job' label'ına yansıt (Loki query uyumluluğu için)
       - source_labels: ['__meta_docker_container_name']
-        regex: '/(.+)'
+        regex: '^/(.+)$'
         target_label: 'job'
 
-      # Grafana Explore Logs (Drilldown) için kritik: service_name label'ı
+      # Grafana Explore Logs (Drilldown) için asıl kritik etiketler! (OTel Standards)
       - source_labels: ['__meta_docker_container_name']
-        regex: '/(.+)'
-        target_label: 'service_name'
+        regex: '^/(.+)$'
+        target_label: 'service'
+        
+      - source_labels: ['__meta_docker_container_name']
+        regex: '^/(.+)$'
+        target_label: 'service.name'
 
       # Docker Compose service adını ekle (opsiyonel, ek filtreleme için)
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']

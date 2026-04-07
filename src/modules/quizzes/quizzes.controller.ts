@@ -349,4 +349,151 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
         },
       },
     }
+  )
+
+  /**
+   * GET /org/:orgDomain/quizzes/:quizId/export
+   * Export quiz to JSON
+   */
+  .get(
+    '/:quizId/export',
+    async ({ params, bearer, jwt, set }) => {
+      try {
+        // Verify JWT
+        if (!bearer) {
+          set.status = 401;
+          return { success: false, message: 'Bearer token required' };
+        }
+
+        const payload = await jwt.verify(bearer);
+        if (!payload || !payload.sub) {
+          set.status = 401;
+          return { success: false, message: 'Invalid token' };
+        }
+
+        const userId = payload.sub as string;
+
+        // Call service
+        const result = await quizService.exportQuiz(
+          params.orgDomain,
+          params.quizId,
+          userId
+        );
+
+        set.status = result.status;
+        return {
+          success: result.success,
+          data: 'data' in result ? result.data : undefined,
+          message: result.message,
+        };
+      } catch (error) {
+        console.error('Export quiz error:', error);
+        set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        return { success: false, message: 'Internal server error' };
+      }
+    },
+    {
+      response: t.Object({
+        success: t.Boolean(),
+        data: t.Optional(t.Any()),
+        message: t.Optional(t.String()),
+      }),
+      detail: {
+        summary: 'Export quiz to JSON',
+        tags: ['Quiz Operations'],
+        security: [{ BearerAuth: [] }],
+        description: 'Exports a quiz and its questions as a portable JSON structure.',
+      },
+    }
+  )
+
+  /**
+   * POST /org/:orgDomain/quizzes/:quizId/import
+   * Import questions from JSON
+   */
+  .post(
+    '/:quizId/import',
+    async ({ params, body, bearer, jwt, set }) => {
+      try {
+        // Verify JWT
+        if (!bearer) {
+          set.status = 401;
+          return { success: false, message: 'Bearer token required' };
+        }
+
+        const payload = await jwt.verify(bearer);
+        if (!payload || !payload.sub) {
+          set.status = 401;
+          return { success: false, message: 'Invalid token' };
+        }
+
+        const userId = payload.sub as string;
+
+        // Validating types (Elysia does it mostly, but just passing it properly)
+        const importData = body as any;
+
+        // Call service
+        const result = await quizService.importQuestions(
+          params.orgDomain,
+          params.quizId,
+          importData,
+          userId
+        );
+
+        set.status = result.status;
+        return {
+          success: result.success,
+          message: result.message,
+        };
+      } catch (error) {
+        console.error('Import questions error:', error);
+        set.status = 500;
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        return { success: false, message: 'Internal server error' };
+      }
+    },
+    {
+      body: t.Object({
+        questions: t.Array(
+          t.Object({
+            text: t.String({ minLength: 5, maxLength: 1000 }),
+            mediaUrl: t.Optional(t.Union([t.String(), t.Null()])),
+            timeLimit: t.Number({ minimum: 10, maximum: 120 }),
+            points: t.Optional(t.Number({ minimum: 100, maximum: 1000 })),
+            correctIndex: t.Number({ minimum: 0, maximum: 3 }),
+            options: t.Array(
+              t.Object({
+                text: t.String({ minLength: 1, maxLength: 200 }),
+                color: t.Union([
+                  t.Literal('red'),
+                  t.Literal('blue'),
+                  t.Literal('green'),
+                  t.Literal('yellow'),
+                  t.Literal('orange'),
+                  t.Literal('purple'),
+                  t.Literal('pink'),
+                  t.Literal('brown'),
+                  t.Literal('black'),
+                  t.Literal('white'),
+                  t.Literal('gray')
+                ]),
+              }),
+              { minItems: 4, maxItems: 4 }
+            )
+          })
+        ),
+      }),
+      response: t.Object({
+        success: t.Boolean(),
+        data: t.Optional(t.Any()),
+        message: t.Optional(t.String()),
+      }),
+      detail: {
+        summary: 'Import questions from JSON',
+        tags: ['Quiz Operations'],
+        security: [{ BearerAuth: [] }],
+        description: 'Bulk inserts questions into an existing quiz from an exported JSON structure.',
+      },
+    }
   );

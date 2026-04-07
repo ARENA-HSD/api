@@ -52,6 +52,18 @@ export type ServiceResponse<T = any> =
     | { status: number; success: true; data: T; message?: string }
     | { status: number; success: false; message: string };
 
+export interface ImportQuestionsRequest {
+    questions: Array<{
+        text: string;
+        mediaUrl?: string; // from JSON
+        timeLimit: number;
+        points?: number;
+        correctIndex: number;
+        options: QuestionOption[];
+    }>;
+}
+
+
 // QUIZ SERVICES
 
 
@@ -264,5 +276,116 @@ export async function deleteQuiz(
         status: 200,
         success: true,
         message: 'Quiz deleted successfully',
+    };
+}
+
+/**
+ * Export quiz as JSON
+ */
+export async function exportQuiz(
+    orgDomain: string,
+    quizId: string,
+    userId: string
+) {
+    // 1. Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        return accessResult;
+    }
+    const orgId = accessResult.orgId;
+
+    // 2. Fetch quiz with questions
+    const quiz = await db.query.quizzes.findFirst({
+        where: and(
+            eq(schema.quizzes.id, quizId),
+            eq(schema.quizzes.orgId, orgId),
+            eq(schema.quizzes.isDeleted, false)
+        ),
+        with: {
+            questions: {
+                orderBy: asc(schema.questions.orderIndex),
+            },
+        },
+    });
+
+    if (!quiz) {
+        return { status: 404, success: false, message: 'Quiz not found' };
+    }
+
+    // 3. Clean up format for export
+    const exportData = {
+        title: quiz.title,
+        defaultMode: quiz.defaultMode,
+        questions: quiz.questions.map((q) => ({
+            text: q.text,
+            mediaUrl: q.mediaUrl, // Keep URL if exists
+            timeLimit: q.timeLimit,
+            points: q.points,
+            correctIndex: q.correctIndex,
+            options: q.options
+        }))
+    };
+
+    return {
+        status: 200,
+        success: true,
+        data: exportData
+    };
+}
+
+/**
+ * Import questions into an existing quiz
+ */
+export async function importQuestions(
+    orgDomain: string,
+    quizId: string,
+    body: ImportQuestionsRequest,
+    userId: string
+) {
+    // 1. Validate org access and get orgId
+    const accessResult = await validateOrgAccessAndGetOrgId(orgDomain, userId);
+    if (!accessResult.success) {
+        return accessResult;
+    }
+    const orgId = accessResult.orgId;
+
+    // 2. Verify quiz belongs to org
+    const belongs = await verifyQuizBelongsToOrg(quizId, orgId);
+    if (!belongs) {
+        return { status: 404, success: false, message: 'Quiz not found' };
+    }
+
+    // 3. Get latest order index
+    const existingQuestions = await db.query.questions.findMany({
+        where: eq(schema.questions.quizId, quizId),
+        columns: { orderIndex: true },
+        orderBy: desc(schema.questions.orderIndex),
+        limit: 1,
+    });
+
+    let nextOrderIndex = existingQuestions.length > 0
+        ? existingQuestions[0].orderIndex + 1
+        : 0;
+
+    // 4. Bulk insert questions
+    if (body.questions && body.questions.length > 0) {
+        const insertData = body.questions.map((q, idx) => ({
+            quizId,
+            text: q.text,
+            mediaUrl: q.mediaUrl || null,
+            timeLimit: q.timeLimit,
+            points: q.points || 1000,
+            correctIndex: q.correctIndex,
+            orderIndex: nextOrderIndex + idx,
+            options: q.options
+        }));
+
+        await db.insert(schema.questions).values(insertData);
+    }
+
+    return {
+        status: 201,
+        success: true,
+        message: 'Questions imported successfully'
     };
 }
