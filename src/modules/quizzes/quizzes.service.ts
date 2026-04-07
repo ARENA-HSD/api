@@ -333,6 +333,19 @@ export async function exportQuiz(
     };
 }
 
+const sanitizeHtml = (str: string) => {
+    return str.replace(/[&<>"']/g, (m) => {
+        switch (m) {
+            case '&': return '&amp;';
+            case '<': return '&lt;';
+            case '>': return '&gt;';
+            case '"': return '&quot;';
+            case "'": return '&#39;';
+            default: return m;
+        }
+    });
+};
+
 /**
  * Import questions into an existing quiz
  */
@@ -371,13 +384,16 @@ export async function importQuestions(
     if (body.questions && body.questions.length > 0) {
         const insertData = body.questions.map((q, idx) => ({
             quizId,
-            text: q.text,
+            text: sanitizeHtml(q.text),
             mediaUrl: q.mediaUrl || null,
             timeLimit: q.timeLimit,
             points: q.points || 1000,
             correctIndex: q.correctIndex,
             orderIndex: nextOrderIndex + idx,
-            options: q.options
+            options: q.options.map(opt => ({
+                text: sanitizeHtml(opt.text),
+                color: opt.color
+            }))
         }));
 
         await db.insert(schema.questions).values(insertData);
