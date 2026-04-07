@@ -19,12 +19,12 @@ jobs:
 
       - name: Install dependencies
         run: |
-          cd api
+          cd ~/git/api
           bun install
 
       - name: Run Tests
         run: |
-          cd api
+          cd ~/git/api
           bun test
 
       - name: Deploy to test
