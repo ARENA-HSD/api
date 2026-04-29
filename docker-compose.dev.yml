@@ -33,12 +33,10 @@ services:
     networks:
       - arena-network
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-backend-dev,service_name=arena-backend-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
-    command: [ "bun", "run", "--watch", "src/index.ts" ]
+        max-size: "10m"
+        max-file: "3"
 
   # --- POSTGRES (DEV) ---
   postgres:
@@ -61,11 +59,10 @@ services:
       timeout: 5s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-postgres-dev,service_name=arena-postgres-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
 
     # --- REDIS (DEV) ---
   redis:
@@ -84,11 +81,10 @@ services:
       timeout: 3s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-redis-dev,service_name=arena-redis-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
 
   pgweb:
     image: ghcr.io/sosedoff/pgweb:latest
@@ -103,11 +99,10 @@ services:
     environment:
       PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-pgweb-dev,service_name=arena-pgweb-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
 
     # --- MONITOR (DEV) ---
 
