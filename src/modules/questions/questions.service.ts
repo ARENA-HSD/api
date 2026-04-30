@@ -9,7 +9,8 @@ export type CreateQuestionData = {
     timeLimit: number;
     points: number;
     options: string[];
-    correctIndex: number;
+    questionType: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
+    correctAnswer: number[];
     orderIndex: number;
 };
 
@@ -19,7 +20,8 @@ export type UpdateQuestionData = {
     timeLimit?: number;
     points?: number;
     options?: QuestionOption[];
-    correctIndex?: number;
+    questionType?: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
+    correctAnswer?: number[];
     orderIndex?: number;
 };
 
@@ -37,7 +39,8 @@ export interface CreateQuestionRequest {
     mediaBase64?: string;
     timeLimit: number;
     points?: number;
-    correctIndex: number;
+    questionType: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
+    correctAnswer: number[];
     options: QuestionOption[];
 }
 
@@ -46,7 +49,8 @@ export interface UpdateQuestionRequest {
     mediaBase64?: string;
     timeLimit?: number;
     points?: number;
-    correctIndex?: number;
+    questionType?: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
+    correctAnswer?: number[];
     options?: QuestionOption[];
 }
 
@@ -97,7 +101,8 @@ export async function createQuestion(
             mediaUrl,
             timeLimit: questionData.timeLimit,
             points: questionData.points || 1000,
-            correctIndex: questionData.correctIndex,
+            questionType: questionData.questionType,
+            correctAnswer: questionData.correctAnswer,
             orderIndex: nextOrderIndex,
             options: questionData.options,
         })
@@ -240,7 +245,8 @@ export async function updateQuestion(
     if (data.timeLimit !== undefined) updates.timeLimit = data.timeLimit;
     if (data.points !== undefined) updates.points = data.points;
     if (data.options !== undefined) updates.options = data.options;
-    if (data.correctIndex !== undefined) updates.correctIndex = data.correctIndex;
+    if (data.questionType !== undefined) updates.questionType = data.questionType;
+    if (data.correctAnswer !== undefined) updates.correctAnswer = data.correctAnswer;
     if (data.orderIndex !== undefined) updates.orderIndex = data.orderIndex;
 
     // Update question

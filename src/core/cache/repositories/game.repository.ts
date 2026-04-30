@@ -487,6 +487,7 @@ export async function getLeaderboard(
 
 /**
  * Loads answer key to Redis (correct answers for all questions)
+ * Stores as JSON strings to support arrays (MULTI_SELECT, ORDERING, RANGE)
  */
 export async function loadAnswerKey(
     pin: string,
@@ -496,31 +497,82 @@ export async function loadAnswerKey(
         return;
     }
 
-    const answerKey: Record<string, number> = {};
+    const answerKey: Record<string, string> = {};
 
     for (const question of questions) {
-        answerKey[question.id] = question.correctIndex;
+        answerKey[question.id] = JSON.stringify(question.correctAnswer);
     }
 
-    await redis.hset(getAnswersKey(pin), toRedisHash(answerKey));
+    await redis.hset(getAnswersKey(pin), answerKey);
     await touchGameKeys(pin);
 }
 
 /**
- * Checks if answer is correct (zero-latency, from Redis)
+ * Gets the correct answer array from Redis
+ */
+export async function getCorrectAnswer(
+    pin: string,
+    questionId: string
+): Promise<number[]> {
+    const raw = await redis.hget(getAnswersKey(pin), questionId);
+    if (raw === null) {
+        throw new Error('Question not found in answer key');
+    }
+    return JSON.parse(raw);
+}
+
+/**
+ * Checks if a single answer is correct (MULTIPLE_CHOICE, TRUE_FALSE)
  */
 export async function checkAnswer(
     pin: string,
     questionId: string,
     answerIndex: number
 ): Promise<boolean> {
-    const correctIndex = await redis.hget(getAnswersKey(pin), questionId);
+    const correctAnswer = await getCorrectAnswer(pin, questionId);
+    return correctAnswer.length === 1 && correctAnswer[0] === answerIndex;
+}
 
-    if (correctIndex === null) {
-        throw new Error('Question not found in answer key');
-    }
+/**
+ * Checks if multiple answers are all correct (MULTI_SELECT — ya hep ya hiç)
+ */
+export async function checkMultiAnswer(
+    pin: string,
+    questionId: string,
+    answerIndices: number[]
+): Promise<boolean> {
+    const correctAnswer = await getCorrectAnswer(pin, questionId);
+    if (answerIndices.length !== correctAnswer.length) return false;
+    const sorted1 = [...answerIndices].sort((a, b) => a - b);
+    const sorted2 = [...correctAnswer].sort((a, b) => a - b);
+    return sorted1.every((v, i) => v === sorted2[i]);
+}
 
-    return parseInt(correctIndex) === answerIndex;
+/**
+ * Checks if ordering is correct (ORDERING — exact order match)
+ */
+export async function checkOrderingAnswer(
+    pin: string,
+    questionId: string,
+    orderedIndices: number[]
+): Promise<boolean> {
+    const correctAnswer = await getCorrectAnswer(pin, questionId);
+    if (orderedIndices.length !== correctAnswer.length) return false;
+    return orderedIndices.every((v, i) => v === correctAnswer[i]);
+}
+
+/**
+ * Checks if a range value falls within the correct range (RANGE)
+ * correctAnswer = [minVal, maxVal]
+ */
+export async function checkRangeAnswer(
+    pin: string,
+    questionId: string,
+    rangeValue: number
+): Promise<boolean> {
+    const correctAnswer = await getCorrectAnswer(pin, questionId);
+    if (correctAnswer.length !== 2) return false;
+    return rangeValue >= correctAnswer[0] && rangeValue <= correctAnswer[1];
 }
 
 
@@ -772,34 +824,42 @@ export async function addRecentPlayer(pin: string, nickname: string): Promise<vo
 
 
 /**
- * Stores which option a player chose (for statistics)
+ * Stores a player's answer (supports single index, array, or range value)
  */
 export async function storePlayerAnswer(
     pin: string,
     questionId: string,
     socketId: string,
-    optionIndex: number
+    answer: number | number[]
 ): Promise<void> {
-    await redis.set(getPlayerAnswerKey(pin, questionId, socketId), optionIndex.toString());
+    const value = Array.isArray(answer) ? JSON.stringify(answer) : answer.toString();
+    await redis.set(getPlayerAnswerKey(pin, questionId, socketId), value);
     await touchAnswerKey(pin, questionId, socketId);
     await touchGameKeys(pin);
 }
 
 /**
- * Gets which option a player chose
+ * Gets a player's answer (returns number for single, array for multi/ordering, or null)
  */
 export async function getPlayerAnswer(
     pin: string,
     questionId: string,
     socketId: string
-): Promise<number | null> {
+): Promise<number | number[] | null> {
     const answer = await redis.get(getPlayerAnswerKey(pin, questionId, socketId));
-    return answer !== null ? parseInt(answer) : null;
+    if (answer === null) return null;
+    try {
+        const parsed = JSON.parse(answer);
+        return parsed;
+    } catch {
+        return parseInt(answer);
+    }
 }
 
 /**
  * PDF SPEC: Get statistics for question (how many chose each option)
  * Returns: { "0": 15, "1": 5, "2": 40, "3": 0 }
+ * For MULTI_SELECT: each selected index is counted separately
  */
 export async function getAnswerStats(pin: string, questionId: string): Promise<Record<string, number>> {
     const socketIds = await redis.smembers(getPlayersKey(pin));
@@ -808,8 +868,16 @@ export async function getAnswerStats(pin: string, questionId: string): Promise<R
     for (const socketId of socketIds) {
         const answer = await getPlayerAnswer(pin, questionId, socketId);
         if (answer !== null) {
-            const key = answer.toString();
-            stats[key] = (stats[key] || 0) + 1;
+            if (Array.isArray(answer)) {
+                // MULTI_SELECT or ORDERING: count each selected index
+                for (const idx of answer) {
+                    const key = idx.toString();
+                    stats[key] = (stats[key] || 0) + 1;
+                }
+            } else {
+                const key = answer.toString();
+                stats[key] = (stats[key] || 0) + 1;
+            }
         }
     }
 
@@ -1030,4 +1098,37 @@ export async function markPlayerReconnected(pin: string, socketId: string): Prom
     const playerKey = getPlayerInfoKey(pin, socketId);
     await redis.hset(playerKey, 'disconnected', 'false');
     await redis.hdel(playerKey, 'disconnectedAt');
+}
+
+
+// QUESTION TYPE TRACKING
+
+
+const getQuestionTypesKey = (pin: string) => `game:${pin}:question_types`;
+
+/**
+ * Loads question types into Redis for quick lookup during answer evaluation
+ */
+export async function loadQuestionTypes(
+    pin: string,
+    questions: QuestionData[]
+): Promise<void> {
+    if (questions.length === 0) return;
+    const types: Record<string, string> = {};
+    for (const q of questions) {
+        types[q.id] = q.questionType;
+    }
+    await redis.hset(getQuestionTypesKey(pin), types);
+    await redis.expire(getQuestionTypesKey(pin), GAME_TTL_SECONDS);
+}
+
+/**
+ * Gets the question type for a specific question
+ */
+export async function getQuestionType(
+    pin: string,
+    questionId: string
+): Promise<string> {
+    const type = await redis.hget(getQuestionTypesKey(pin), questionId);
+    return type || 'MULTIPLE_CHOICE';
 }

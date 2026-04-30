@@ -8,10 +8,11 @@ export const questions = pgTable('questions', {
     .notNull()
     .references(() => quizzes.id, { onDelete: 'cascade' }),
   text: text('text').notNull(),
+  questionType: varchar('question_type', { length: 50 }).notNull().default('MULTIPLE_CHOICE'),
   mediaUrl: varchar('media_url', { length: 500 }),
   timeLimit: integer('time_limit').notNull(),
   points: integer('points').default(1000),
-  correctIndex: integer('correct_index').notNull(),
+  correctAnswer: jsonb('correct_answer').notNull().default([0]),
   orderIndex: integer('order_index').notNull(),
   options: jsonb('options').notNull(),
 });

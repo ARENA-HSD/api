@@ -90,23 +90,31 @@ export function filterQuestionByMode(
     question: QuestionData,
     mode: 'PERSONAL' | 'STAGE'
 ): any {
+    const base = {
+        qIndex: question.orderIndex,
+        time: question.timeLimit,
+        serverTime: Date.now(),
+        questionType: question.questionType,
+    };
+
+    // Add range bounds for RANGE type
+    if (question.questionType === 'RANGE' && question.correctAnswer.length === 2) {
+        (base as any).rangeMin = question.correctAnswer[0];
+        (base as any).rangeMax = question.correctAnswer[1];
+    }
+
     if (mode === 'STAGE') {
         // STAGE mode: Hide option texts (only colors)
         return {
-            qIndex: question.orderIndex,
-            time: question.timeLimit,
-            serverTime: Date.now(),
-            // No text, no mediaUrl, only options without text
+            ...base,
             options: question.options.map(opt => ({ text: '', color: opt.color })),
         };
     } else {
         // PERSONAL mode: Show everything
         return {
-            qIndex: question.orderIndex,
+            ...base,
             text: question.text,
             mediaUrl: question.mediaUrl,
-            time: question.timeLimit,
-            serverTime: Date.now(),
             options: question.options,
         };
     }
@@ -168,12 +176,14 @@ export async function createGame(
         mediaUrl: q.mediaUrl || undefined,
         timeLimit: q.timeLimit,
         points: q.points || 1000,
-        correctIndex: q.correctIndex,
+        questionType: (q as any).questionType || 'MULTIPLE_CHOICE',
+        correctAnswer: (q as any).correctAnswer as number[] || [0],
         orderIndex: q.orderIndex,
         options: q.options as any,
     }));
 
     await GamesHelper.loadAnswerKey(pin, questionData);
+    await GamesHelper.loadQuestionTypes(pin, questionData);
 
     // 4. Create game state in Redis
     await GamesHelper.createGameState(
@@ -442,13 +452,14 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
         });
         if (quiz && quiz.questions[state.currentQuestionIndex]) {
             const question = quiz.questions[state.currentQuestionIndex];
-            const questionData = {
+            const questionData: QuestionData = {
                 id: question.id,
                 text: question.text,
                 mediaUrl: question.mediaUrl || undefined,
                 timeLimit: question.timeLimit,
                 points: question.points || 1000,
-                correctIndex: question.correctIndex,
+                questionType: (question as any).questionType || (question as any).question_type || 'MULTIPLE_CHOICE',
+                correctAnswer: (question as any).correctAnswer || (question as any).correct_answer || [0],
                 orderIndex: question.orderIndex,
                 options: question.options as any,
             };
@@ -481,11 +492,13 @@ async function resendHostPhaseEvent(ws: any, pin: string, state: any) {
         if (quiz && quiz.questions[state.currentQuestionIndex]) {
             const question = quiz.questions[state.currentQuestionIndex];
             const answerStats = await GamesHelper.getAnswerStats(pin, question.id);
+            const correctAnswer = (question as any).correctAnswer as number[] || [0];
             const streakLeaders = await GamesHelper.getStreakLeaders(pin, 5);
             ws.send(JSON.stringify({
                 type: 'QUESTION_END',
                 data: {
-                    correctIndex: question.correctIndex,
+                    correctAnswer,
+                    questionType: (question as any).questionType || 'MULTIPLE_CHOICE',
                     answerStats,
                     streakLeaders,
                 },
@@ -537,7 +550,8 @@ async function resendPlayerPhaseEvent(ws: any, pin: string, state: any) {
                 mediaUrl: question.mediaUrl || undefined,
                 timeLimit: question.timeLimit,
                 points: question.points || 1000,
-                correctIndex: question.correctIndex,
+                questionType: (question as any).questionType || (question as any).question_type || 'MULTIPLE_CHOICE',
+                correctAnswer: (question as any).correctAnswer || (question as any).correct_answer || [0],
                 orderIndex: question.orderIndex,
                 options: question.options as any,
             };
@@ -574,7 +588,8 @@ async function resendPlayerPhaseEvent(ws: any, pin: string, state: any) {
             ws.send(JSON.stringify({
                 type: 'QUESTION_END',
                 data: {
-                    correctIndex: question.correctIndex,
+                    correctAnswer: (question as any).correctAnswer as number[] || [0],
+                    questionType: (question as any).questionType || 'MULTIPLE_CHOICE',
                 },
             }));
         }
@@ -957,13 +972,14 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
     if (!quiz || !quiz.questions[questionIndex]) return;
 
     const question = quiz.questions[questionIndex];
-    const questionData = {
+    const questionData: QuestionData = {
         id: question.id,
         text: question.text,
         mediaUrl: question.mediaUrl || undefined,
         timeLimit: question.timeLimit,
         points: question.points || 1000,
-        correctIndex: question.correctIndex,
+        questionType: (question as any).questionType || (question as any).question_type || 'MULTIPLE_CHOICE',
+        correctAnswer: (question as any).correctAnswer || (question as any).correct_answer || [0],
         orderIndex: question.orderIndex,
         options: question.options as any,
     };
@@ -1040,7 +1056,7 @@ export async function sendQuestionStart(pin: string, questionIndex: number) {
  * PDF SPEC: Handle SUBMIT_ANSWER event
  */
 export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data']) {
-    const { answerIndex } = data;
+    const { answerIndex, answerIndices, orderedIndices, rangeValue } = data;
     const pin = (ws.data as any)?.pin;
     if (!pin) return;
 
@@ -1074,8 +1090,19 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
     const playerInfo = await GamesHelper.getPlayerInfo(pin, ws.id);
     if (!playerInfo) return;
 
-    // 3. Check if answer is correct
-    const isCorrect = await GamesHelper.checkAnswer(pin, question.id, answerIndex);
+    // 3. Check if answer is correct based on question type
+    const questionType = await GamesHelper.getQuestionType(pin, question.id);
+    let isCorrect = false;
+
+    if (questionType === 'MULTI_SELECT' && answerIndices) {
+        isCorrect = await GamesHelper.checkMultiAnswer(pin, question.id, answerIndices);
+    } else if (questionType === 'ORDERING' && orderedIndices) {
+        isCorrect = await GamesHelper.checkOrderingAnswer(pin, question.id, orderedIndices);
+    } else if (questionType === 'RANGE' && rangeValue !== undefined) {
+        isCorrect = await GamesHelper.checkRangeAnswer(pin, question.id, rangeValue);
+    } else {
+        isCorrect = await GamesHelper.checkAnswer(pin, question.id, answerIndex ?? -1);
+    }
 
     // 4. Calculate time remaining
     const startTime = await GamesHelper.getQuestionStartTime(pin);
@@ -1097,7 +1124,8 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
     );
 
     // PDF SPEC: Store answer for statistics
-    await GamesHelper.storePlayerAnswer(pin, question.id, ws.id, answerIndex);
+    const answerToStore = answerIndices ?? orderedIndices ?? rangeValue ?? answerIndex ?? -1;
+    await GamesHelper.storePlayerAnswer(pin, question.id, ws.id, answerToStore);
 
     // 7. Increment total answers
     await GamesHelper.updateGameState(pin, {
@@ -1137,7 +1165,7 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
         }));
         if (currentState && activePlayers > 0 && answeredCount >= activePlayers) {
             // Automatically show QUESTION_END after all active players answered
-            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id, question.correctIndex), 1000);
+            setTimeout(() => showQuestionEnd(pin, questionIndex, question.id), 1000);
         }
     } catch (err) {
         console.error('Error checking answered players', err);
@@ -1147,7 +1175,7 @@ export async function handleSubmitAnswer(ws: any, data: SubmitAnswerEvent['data'
 /**
  * PDF SPEC: Helper - Show QUESTION_END with differentiated data
  */
-export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string, correctIndex: number) {
+export async function showQuestionEnd(pin: string, questionIndex: number, questionId: string) {
     // Atomik lock: ayni soru icin showQuestionEnd sadece bir kez calisir
     const lockAcquired = await GamesHelper.acquireQuestionEndLock(pin, questionIndex);
     if (!lockAcquired) {
@@ -1177,10 +1205,14 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
     // PDF SPEC: Differentiated payloads
     // To host: full stats
     const { publish } = await import('../../core/pubsub/broadcaster');
+    const correctAnswer = await GamesHelper.getCorrectAnswer(pin, questionId);
+    const questionType = await GamesHelper.getQuestionType(pin, questionId);
+
     await publish(`game:${pin}:host`, JSON.stringify({
         type: 'QUESTION_END',
         data: {
-            correctIndex, // only correct answer index for host
+            correctAnswer, // array of correct answer indices/bounds
+            questionType,
             answerStats, // { "0": 15, "1": 5, "2": 40, "3": 0 }
             streakLeaders,
         },
@@ -1194,7 +1226,20 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
             if (!pInfo) continue;
 
             const playerAnswer = await GamesHelper.getPlayerAnswer(pin, questionId, sid);
-            const playerIsCorrect = playerAnswer !== null ? (playerAnswer === correctIndex) : false;
+            let playerIsCorrect = false;
+            
+            if (playerAnswer !== null) {
+                if (questionType === 'MULTI_SELECT' && Array.isArray(playerAnswer)) {
+                    playerIsCorrect = await GamesHelper.checkMultiAnswer(pin, questionId, playerAnswer);
+                } else if (questionType === 'ORDERING' && Array.isArray(playerAnswer)) {
+                    playerIsCorrect = await GamesHelper.checkOrderingAnswer(pin, questionId, playerAnswer);
+                } else if (questionType === 'RANGE' && typeof playerAnswer === 'number') {
+                    playerIsCorrect = await GamesHelper.checkRangeAnswer(pin, questionId, playerAnswer);
+                } else if (typeof playerAnswer === 'number') {
+                    playerIsCorrect = await GamesHelper.checkAnswer(pin, questionId, playerAnswer);
+                }
+            }
+
             const playerPoints = pInfo.lastPoints || 0;
             const playerNewScore = pInfo.score || 0;
 
@@ -1203,7 +1248,8 @@ export async function showQuestionEnd(pin: string, questionIndex: number, questi
                 data: {
                     qIndex: questionIndex,
                     streakLeaders,
-                    correctIndex,
+                    correctAnswer,
+                    questionType,
                     correct: playerIsCorrect,
                     points: playerPoints,
                     newScore: playerNewScore,

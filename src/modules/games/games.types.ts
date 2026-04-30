@@ -4,6 +4,7 @@
 
 export type GameStatus = 'LOBBY' | 'ACTIVE' | 'FINISHED';
 export type GameMode = 'PERSONAL' | 'STAGE';
+export type QuestionType = 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
 
 
 // REDIS DATA STRUCTURES
@@ -133,7 +134,10 @@ export interface StartGameEvent {
 export interface SubmitAnswerEvent {
     type: 'SUBMIT_ANSWER';
     data: {
-        answerIndex: number;
+        answerIndex?: number;          // MULTIPLE_CHOICE, TRUE_FALSE
+        answerIndices?: number[];      // MULTI_SELECT
+        orderedIndices?: number[];     // ORDERING (items in player's order)
+        rangeValue?: number;           // RANGE (numeric input)
     };
 }
 
@@ -210,9 +214,12 @@ export interface QuestionStartEvent {
         qIndex: number;
         time: number;
         serverTime: number;
+        questionType: QuestionType;
         text?: string;         // Included in PERSONAL mode
         mediaUrl?: string;     // Included in PERSONAL mode
         options?: Array<{ text: string; color: string }>; // Filtered by mode
+        rangeMin?: number;     // RANGE: minimum value
+        rangeMax?: number;     // RANGE: maximum value
     };
 }
 
@@ -220,7 +227,8 @@ export interface QuestionStartEvent {
 export interface QuestionEndHostEvent {
     type: 'QUESTION_END';
     data: {
-        correctOptionIndex: number;
+        correctAnswer: number[];       // Array of correct answer indices
+        questionType: QuestionType;
         stats: Record<string, number>; // { "0": 15, "1": 5, "2": 40, "3": 0 }
     };
 }
@@ -232,7 +240,8 @@ export interface QuestionEndPlayerEvent {
         correct: boolean;
         scoreEarned: number;
         streak: number;
-        correctOptionIndex: number;
+        correctAnswer: number[];       // Array of correct answer indices
+        questionType: QuestionType;
     };
 }
 
@@ -356,7 +365,8 @@ export interface QuestionData {
     mediaUrl?: string;
     timeLimit: number;
     points: number;
-    correctIndex: number;
+    questionType: QuestionType;
+    correctAnswer: number[];         // [0] for single, [1,3] for multi, [min,max] for range
     orderIndex: number;
     options: Array<{ text: string; color: string }>;
 }
@@ -375,7 +385,10 @@ export interface QuizData {
 export interface PlayerAnswerRecord {
     socketId: string;
     nickname: string;
-    optionIndex: number;
+    answerIndex?: number;
+    answerIndices?: number[];
+    orderedIndices?: number[];
+    rangeValue?: number;
     wasCorrect: boolean;
     scoreEarned: number;
     totalScore: number;
