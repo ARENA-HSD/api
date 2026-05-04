@@ -39,6 +39,12 @@ export const activeWebSocketConnections = new Gauge({
     registers: [register]
 });
 
+export const activePollingConnections = new Gauge({
+    name: 'active_polling_connections',
+    help: 'Number of active HTTP polling sessions',
+    registers: [register]
+});
+
 export const websocketConnectionsOpenedTotal = new Counter({
     name: 'websocket_connections_opened_total',
     help: 'Total number of opened WebSocket connections',

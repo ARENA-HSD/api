@@ -882,6 +882,13 @@
           "legendFormat": "Active WebSocket Connections",
           "range": true,
           "refId": "A"
+        },
+        {
+          "editorMode": "code",
+          "expr": "active_polling_connections{env=~\"prod|dev\", job=\"arena-api\"}",
+          "legendFormat": "Active HTTP Polling Sessions",
+          "range": true,
+          "refId": "B"
         }
       ],
       "title": "Active Request Count",
