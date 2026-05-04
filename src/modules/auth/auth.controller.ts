@@ -29,7 +29,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 	.use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
 	.post(
 		"/",
-		async ({ body, set, jwt, request }) => {
+		async ({ headers,  body, set, jwt, request  }) => {
 			const { email, password, cfTurnstileToken } = body;
 			const host = getRequestHost(request);
 			const orgSubdomain = getOrgSubdomainFromHost(host);
@@ -67,7 +67,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 			try {
 				valid = await Bun.password.verify(password, user.password);
 			} catch (error) {
-				logEvent({ event: 'auth.token.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown' } });
+				logEvent({ event: 'auth.token.error', level: 'ERROR', source: 'code', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
 				set.status = 500;
 				return { success: false, message: "Authentication error" };
 			}
@@ -80,7 +80,7 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 				if (orgSubdomain === "admin") {
 					if (user.role !== "WEB_ADMIN") {
 						set.status = 403;
-						logEvent({ event: 'auth.admin.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'not_web_admin' } });
+						logEvent({ event: 'auth.admin.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'not_web_admin' } , orgSubdomain: headers['x-organization-domain'] });
 						return { success: false, message: "Admin access denied" };
 					}
 				} else {
@@ -88,14 +88,14 @@ export const loginRoutes = new Elysia({ prefix: "/login" })
 
 					if (!orgId) {
 						set.status = 403;
-						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'org_not_found' } });
+						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, reason: 'org_not_found' } , orgSubdomain: headers['x-organization-domain'] });
 						return { success: false, message: "Organization access denied" };
 					}
 
 					const role = await getUserRoleInOrg(user.id, orgId);
 					if (!role) {
 						set.status = 403;
-						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, orgId, reason: 'not_member' } });
+						logEvent({ event: 'auth.org.access.denied', level: 'WARNING', source: 'code', data: { userId: user.id, orgSubdomain, orgId, reason: 'not_member' } , orgSubdomain: headers['x-organization-domain'] });
 						return { success: false, message: "Organization access denied" };
 					}
 				}

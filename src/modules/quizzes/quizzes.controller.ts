@@ -29,7 +29,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .post(
     '/',
-    async ({ params, body, bearer, jwt, set }) => {
+    async ({ headers,  params, body, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -54,14 +54,14 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
 
         set.status = result.status;
         if (result.status === 403) {
-          logEvent({ event: 'quiz.access.denied', level: 'WARNING', source: 'code', data: { orgDomain: params.orgDomain } });
+          logEvent({ event: 'quiz.access.denied', level: 'WARNING', source: 'code', data: { orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
         }
         return result;
 
       } catch (error) {
         console.error('Create quiz error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -98,7 +98,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .get(
     '/',
-    async ({ params, bearer, jwt, set }) => {
+    async ({ headers,  params, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -132,7 +132,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('List quizzes error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -163,7 +163,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .get(
     '/:quizId',
-    async ({ params, bearer, jwt, set }) => {
+    async ({ headers,  params, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -195,7 +195,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Get quiz error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -226,7 +226,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .patch(
     '/:quizId',
-    async ({ params, body, bearer, jwt, set }) => {
+    async ({ headers,  params, body, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -259,7 +259,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Update quiz error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -295,7 +295,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .delete(
     '/:quizId',
-    async ({ params, bearer, jwt, set }) => {
+    async ({ headers,  params, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -326,7 +326,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Delete quiz error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -357,7 +357,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .get(
     '/:quizId/export',
-    async ({ params, bearer, jwt, set }) => {
+    async ({ headers,  params, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -389,7 +389,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Export quiz error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
@@ -414,7 +414,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
    */
   .post(
     '/:quizId/import',
-    async ({ params, body, bearer, jwt, set }) => {
+    async ({ headers,  params, body, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -449,7 +449,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
       } catch (error) {
         console.error('Import questions error:', error);
         set.status = 500;
-        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'quiz.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },
