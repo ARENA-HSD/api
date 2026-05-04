@@ -59,3 +59,25 @@ export const websocketMessageErrorsTotal = new Counter({
     labelNames: ['platform', 'error_type'],
     registers: [register]
 });
+
+// ─── ORGANIZATION METRICS ──────────────────────────────
+
+export const organizationsTotal = new Gauge({
+    name: 'arena_organizations_total',
+    help: 'Total number of organizations',
+    registers: [register]
+});
+
+export const organizationMembersTotal = new Gauge({
+    name: 'arena_organization_members_total',
+    help: 'Number of members per organization',
+    labelNames: ['org_subdomain', 'org_name'],
+    registers: [register]
+});
+
+export const organizationQuizzesTotal = new Gauge({
+    name: 'arena_organization_quizzes_total',
+    help: 'Number of quizzes per organization',
+    labelNames: ['org_subdomain', 'org_name'],
+    registers: [register]
+});
