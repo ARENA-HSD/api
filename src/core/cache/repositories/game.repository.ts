@@ -193,7 +193,8 @@ export async function createGameState(
     quizId: string,
     mode: 'PERSONAL' | 'STAGE',
     hostSocketId: string,
-    totalQuestions: number
+    totalQuestions: number,
+    orgSubdomain: string
 ): Promise<void> {
     const state: GameState = {
         status: 'LOBBY',
@@ -203,6 +204,7 @@ export async function createGameState(
         hostSessionToken: '',
         totalAnswers: 0,
         quizId,
+        orgSubdomain,
         totalPlayers: 0,
         totalQuestions,
         currentPhase: 'LOBBY',
@@ -230,6 +232,7 @@ export async function getGameState(pin: string): Promise<GameState | null> {
         hostSessionToken: state.hostSessionToken || '',
         totalAnswers: parseInteger(state.totalAnswers, 0),
         quizId: state.quizId,
+        orgSubdomain: state.orgSubdomain || 'system',
         totalPlayers: parseInteger(state.totalPlayers, 0),
         totalQuestions: parseInteger(state.totalQuestions, 0),
         currentPhase: parseGamePhase(state.currentPhase),

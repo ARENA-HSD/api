@@ -1031,7 +1031,7 @@
       },
       "id": 200,
       "panels": [],
-      "title": "🏢 Organizasyon Yönetimi",
+      "title": "🏢 Organization Management",
       "type": "row"
     },
     {
@@ -1075,7 +1075,9 @@
         "orientation": "auto",
         "percentChangeColorMode": "standard",
         "reduceOptions": {
-          "calcs": ["lastNotNull"],
+          "calcs": [
+            "lastNotNull"
+          ],
           "fields": "",
           "values": false
         },
@@ -1093,11 +1095,11 @@
           "editorMode": "code",
           "expr": "arena_organizations_total",
           "instant": true,
-          "legendFormat": "Toplam Organizasyon",
+          "legendFormat": "Total Organizations",
           "refId": "A"
         }
       ],
-      "title": "Toplam Organizasyon",
+      "title": "Total Organizations",
       "type": "stat"
     },
     {
@@ -1114,7 +1116,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Üye Sayısı",
+            "axisLabel": "Member Count",
             "axisPlacement": "auto",
             "fillOpacity": 80,
             "gradientMode": "scheme",
@@ -1146,30 +1148,27 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 10,
+        "w": 5,
         "x": 4,
         "y": 39
       },
       "id": 202,
       "options": {
-        "barRadius": 0.1,
-        "barWidth": 0.8,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
         "orientation": "horizontal",
-        "showValue": "always",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "xTickLabelRotation": 0
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "12.4.1",
       "targets": [
@@ -1185,8 +1184,8 @@
           "refId": "A"
         }
       ],
-      "title": "👥 Organizasyon Üye Dağılımı",
-      "type": "barchart"
+      "title": "👥 Organization Member Distribution",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -1202,7 +1201,7 @@
             "axisBorderShow": false,
             "axisCenteredZero": false,
             "axisColorMode": "text",
-            "axisLabel": "Quiz Sayısı",
+            "axisLabel": "Quiz Count",
             "axisPlacement": "auto",
             "fillOpacity": 80,
             "gradientMode": "scheme",
@@ -1234,30 +1233,27 @@
       },
       "gridPos": {
         "h": 6,
-        "w": 10,
-        "x": 14,
+        "w": 5,
+        "x": 9,
         "y": 39
       },
       "id": 203,
       "options": {
-        "barRadius": 0.1,
-        "barWidth": 0.8,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
         "orientation": "horizontal",
-        "showValue": "always",
-        "stacking": "none",
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
         },
-        "xTickLabelRotation": 0
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
       },
       "pluginVersion": "12.4.1",
       "targets": [
@@ -1273,8 +1269,76 @@
           "refId": "A"
         }
       ],
-      "title": "📝 Organizasyon Quiz Dağılımı",
-      "type": "barchart"
+      "title": "📝 Organization Quiz Distribution",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "blue",
+                "value": 0
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 6,
+        "w": 10,
+        "x": 14,
+        "y": 39
+      },
+      "id": 205,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "horizontal",
+        "percentChangeColorMode": "standard",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showPercentChange": false,
+        "textMode": "auto",
+        "wideLayout": true
+      },
+      "pluginVersion": "12.4.1",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "Prometheus"
+          },
+          "editorMode": "code",
+          "expr": "arena_active_game_players{org_subdomain=~\"$org_subdomain\"}",
+          "instant": true,
+          "legendFormat": "Quiz: {{quiz_id}} (PIN: {{pin}})",
+          "refId": "A"
+        }
+      ],
+      "title": "🎮 Active Players per Quiz",
+      "type": "stat"
     },
     {
       "datasource": {
@@ -1292,7 +1356,7 @@
         "y": 45
       },
       "id": 204,
-      "description": "Organizasyon dropdown'undan seçim yaparak o organizasyona ait logları filtreleyin.",
+      "description": "Filter logs for the selected organization.",
       "options": {
         "dedupStrategy": "none",
         "enableInfiniteScrolling": true,
@@ -1321,7 +1385,7 @@
           "legendFormat": ""
         }
       ],
-      "title": "🏢 Organizasyon Logları — $org_subdomain",
+      "title": "🏢 Organization Logs — $org_subdomain",
       "type": "logs"
     }
   ],
@@ -1338,13 +1402,13 @@
           "uid": "Loki"
         },
         "definition": "label_values(job)",
-        "description": "Log görüntülemek istediğiniz servisi seçin",
+        "description": "Select service to view logs",
         "hide": 0,
         "includeAll": true,
         "allValue": ".+",
         "multi": false,
         "name": "service",
-        "label": "Servis",
+        "label": "Service",
         "options": [],
         "query": {
           "label": "job",
@@ -1363,9 +1427,9 @@
           "text": "",
           "value": ""
         },
-        "description": "Log satırlarında arama yapın (büyük/küçük harf duyarsız)",
+        "description": "Search in log lines (case insensitive)",
         "hide": 0,
-        "label": "Log Arama",
+        "label": "Log Search",
         "name": "log_search",
         "options": [
           {
@@ -1385,13 +1449,13 @@
           "uid": "Prometheus"
         },
         "definition": "label_values(arena_organization_members_total, org_subdomain)",
-        "description": "Loglarını görmek istediğiniz organizasyonu seçin",
+        "description": "Select organization to view logs",
         "hide": 0,
         "includeAll": true,
         "allValue": ".+",
         "multi": false,
         "name": "org_subdomain",
-        "label": "Organizasyon",
+        "label": "Organization",
         "options": [],
         "query": {
           "qryType": 1,

@@ -52,6 +52,14 @@ export const websocketConnectionsOpenedTotal = new Counter({
     registers: [register]
 });
 
+// Count active players per organization quiz
+export const activeGamePlayers = new Gauge({
+    name: 'arena_active_game_players',
+    help: 'Number of active players in a game/quiz',
+    labelNames: ['org_subdomain', 'quiz_id', 'pin'],
+    registers: [register]
+});
+
 export const websocketConnectionsClosedTotal = new Counter({
     name: 'websocket_connections_closed_total',
     help: 'Total number of closed WebSocket connections',

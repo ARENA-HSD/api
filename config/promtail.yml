@@ -68,6 +68,10 @@ scrape_configs:
                   org_subdomain: org_subdomain
                   level: level
                   event: event
+            # Default value if missing
+            - template:
+                source: org_subdomain
+                template: '{{ if .org_subdomain }}{{ .org_subdomain }}{{ else }}system{{ end }}'
             - labels:
                 org_subdomain:
                 level:
