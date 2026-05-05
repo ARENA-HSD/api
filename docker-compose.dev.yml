@@ -35,7 +35,6 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-    command: [ "bun", "run", "--watch", "src/index.ts" ]
 
   # --- POSTGRES (DEV) ---
   postgres:
