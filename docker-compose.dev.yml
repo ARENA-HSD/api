@@ -12,8 +12,6 @@ services:
       - DATABASE_URL=${DATABASE_URL}
       - REDIS_URL=${REDIS_URL}
       - JWT_SECRET=${JWT_SECRET}
-      - GRAFANA_ADMIN_USER=${GRAFANA_ADMIN_USER}
-      - GRAFANA_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
       - NODE_ENV=development
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
@@ -33,11 +31,10 @@ services:
     networks:
       - arena-network
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-backend-dev,service_name=arena-backend-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
     command: [ "bun", "run", "--watch", "src/index.ts" ]
 
   # --- POSTGRES (DEV) ---
@@ -61,13 +58,12 @@ services:
       timeout: 5s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-postgres-dev,service_name=arena-postgres-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
 
-    # --- REDIS (DEV) ---
+  # --- REDIS (DEV) ---
   redis:
     image: redis:alpine
     container_name: arena-redis-dev
@@ -84,12 +80,12 @@ services:
       timeout: 3s
       retries: 5
     logging:
-      driver: loki
+      driver: json-file
       options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-redis-dev,service_name=arena-redis-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
+        max-size: "10m"
+        max-file: "3"
 
+  # --- PGWEB (DEV) ---
   pgweb:
     image: ghcr.io/sosedoff/pgweb:latest
     container_name: arena-pgweb-dev
@@ -103,78 +99,6 @@ services:
     environment:
       PGWEB_DATABASE_URL: postgresql://admin:cok_gizli_sifre@postgres:5432/arena_db?sslmode=disable
     logging:
-      driver: loki
-      options:
-        loki-url: "http://loki:3100/loki/api/v1/push"
-        loki-external-labels: job=arena-pgweb-dev,service_name=arena-pgweb-dev,env=development
-    # Loglar doğrudan lokiye gider, console'a yazmaz.
-
-    # --- MONITOR (DEV) ---
-
-  prometheus:
-    image: prom/prometheus:latest
-    container_name: arena-prometheus
-    restart: unless-stopped
-    volumes:
-      - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
-    ports:
-      - "9090:9090"
-    networks:
-      - arena-network
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  loki:
-    image: grafana/loki:latest
-    container_name: arena-loki
-    restart: unless-stopped
-    ports:
-      - "3100:3100"
-    volumes:
-      - ./config/loki.yml:/etc/loki/local-config.yaml
-      - loki_data_dev:/loki
-    networks:
-      - arena-network
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  promtail:
-    image: grafana/promtail:latest
-    container_name: arena-promtail
-    restart: unless-stopped
-    volumes:
-      - ./config/promtail.yml:/etc/promtail/config.yml
-      - /var/run/docker.sock:/var/run/docker.sock
-      - /var/lib/docker/containers:/var/lib/docker/containers:ro
-      - promtail_data_dev:/var/lib/promtail
-    networks:
-      - arena-network
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
-
-  grafana:
-    image: grafana/grafana:latest
-    container_name: arena-grafana
-    restart: unless-stopped
-    ports:
-      - "3001:3000"
-    environment:
-      - GF_SECURITY_ADMIN_USER=${GRAFANA_ADMIN_USER}
-      - GF_SECURITY_ADMIN_PASSWORD=${GRAFANA_ADMIN_PASSWORD}
-    volumes:
-      - ./config/grafana/provisioning:/etc/grafana/provisioning
-    networks:
-      - arena-network
-    logging:
       driver: json-file
       options:
         max-size: "10m"
@@ -187,5 +111,3 @@ networks:
 volumes:
   postgres_data_dev:
   redis_data_dev:
-  loki_data_dev:
-  promtail_data_dev:

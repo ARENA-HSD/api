@@ -56,3 +56,19 @@ scrape_configs:
       # Docker imaj adını ekle
       - source_labels: ['__meta_docker_container_label_com_docker_compose_image']
         target_label: 'image'
+
+    # Pipeline: Backend container JSON loglarından org_subdomain label'ı çıkar
+    pipeline_stages:
+      # Sadece backend container loglarına uygula
+      - match:
+          selector: '{container=~"arena-backend.*"}'
+          stages:
+            - json:
+                expressions:
+                  org_subdomain: org_subdomain
+                  level: level
+                  event: event
+            - labels:
+                org_subdomain:
+                level:
+                event:

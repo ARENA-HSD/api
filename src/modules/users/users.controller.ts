@@ -39,7 +39,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
   .post(
     "/",
-    async ({ body, set, jwt, request }) => {
+    async ({ headers,  body, set, jwt, request  }) => {
       const { username, email, password, cfTurnstileToken } = body;
 
       const remoteIp =
@@ -108,7 +108,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   )
   .delete(
     "/:id",
-    async ({ set, params, cookie, bearer, jwt }) => {
+    async ({ headers,  set, params, cookie, bearer, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth)
         return { success: false, message: "Unauthorized" };
@@ -146,7 +146,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   )
   .patch(
     "/:id",
-    async ({ set, params, cookie, bearer, body, jwt }) => {
+    async ({ headers,  set, params, cookie, bearer, body, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth)
         return { success: false, message: "Unauthorized" };
@@ -237,7 +237,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   )
   .get(
     "/:id",
-    async ({ set, params }) => {
+    async ({ headers,  set, params  }) => {
       const [user] = await db
         .select()
         .from(schema.users)
@@ -277,7 +277,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   //  GET /users/me/invitations — Kullanıcının tüm PENDING davetlerini org adıyla listele
   .get(
     "/me/invitations",
-    async ({ set, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth — Token zorunlu
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Bearer token required" };
@@ -316,7 +316,7 @@ export const usersRoutes = new Elysia({ prefix: "/users" })
   //  PATCH /users/me/invitations/:invitationId — Daveti kabul veya reddet
   .patch(
     "/me/invitations/:invitationId",
-    async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth — Token zorunlu
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Bearer token required" };

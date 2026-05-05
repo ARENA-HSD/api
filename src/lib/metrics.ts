@@ -39,6 +39,12 @@ export const activeWebSocketConnections = new Gauge({
     registers: [register]
 });
 
+export const activePollingConnections = new Gauge({
+    name: 'active_polling_connections',
+    help: 'Number of active HTTP polling sessions',
+    registers: [register]
+});
+
 export const websocketConnectionsOpenedTotal = new Counter({
     name: 'websocket_connections_opened_total',
     help: 'Total number of opened WebSocket connections',
@@ -57,5 +63,27 @@ export const websocketMessageErrorsTotal = new Counter({
     name: 'websocket_message_errors_total',
     help: 'Total number of WebSocket message processing errors',
     labelNames: ['platform', 'error_type'],
+    registers: [register]
+});
+
+// ─── ORGANIZATION METRICS ──────────────────────────────
+
+export const organizationsTotal = new Gauge({
+    name: 'arena_organizations_total',
+    help: 'Total number of organizations',
+    registers: [register]
+});
+
+export const organizationMembersTotal = new Gauge({
+    name: 'arena_organization_members_total',
+    help: 'Number of members per organization',
+    labelNames: ['org_subdomain', 'org_name'],
+    registers: [register]
+});
+
+export const organizationQuizzesTotal = new Gauge({
+    name: 'arena_organization_quizzes_total',
+    help: 'Number of quizzes per organization',
+    labelNames: ['org_subdomain', 'org_name'],
     registers: [register]
 });

@@ -15,7 +15,7 @@ export const questionsRoutes = new Elysia({
   // POST - Create question
   .post(
     "/",
-    async ({ set, params, body, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -60,7 +60,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to create question" };
       }
     },
@@ -108,7 +108,7 @@ export const questionsRoutes = new Elysia({
   // GET - List all questions (sorted by orderIndex)
   .get(
     "/",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -139,7 +139,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch questions" };
       }
     },
@@ -161,7 +161,7 @@ export const questionsRoutes = new Elysia({
   // GET - Get single question by ID
   .get(
     "/:questionId",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -193,7 +193,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch question" };
       }
     },
@@ -220,7 +220,7 @@ export const questionsRoutes = new Elysia({
   // PATCH - Update question
   .patch(
     "/:questionId",
-    async ({ set, params, body, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -266,7 +266,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to update question" };
       }
     },
@@ -319,7 +319,7 @@ export const questionsRoutes = new Elysia({
   // DELETE - Delete question
   .delete(
     "/:questionId",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -352,7 +352,7 @@ export const questionsRoutes = new Elysia({
           }
         }
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to delete question" };
       }
     },
@@ -381,7 +381,7 @@ export const questionsRoutes = new Elysia({
   */
   .post(
     '/reorder',
-    async ({ params, body, bearer, jwt, set }) => {
+    async ({ headers,  params, body, bearer, jwt, set  }) => {
       try {
         // Verify JWT
         if (!bearer) {
@@ -413,7 +413,7 @@ export const questionsRoutes = new Elysia({
       } catch (error) {
         console.error('Reorder questions error:', error);
         set.status = 500;
-        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'question.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: 'Internal server error' };
       }
     },

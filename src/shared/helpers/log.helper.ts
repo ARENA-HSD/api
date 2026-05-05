@@ -14,17 +14,14 @@ const TOPIC_IDS: Record<LogLevel, string | undefined> = {
     CRITICAL: Bun.env.TELEGRAM_CRITICAL_TOPIC_ID,
 };
 
-export const logEvent = ({
-    event,
-    level,
-    source,
-    data,
-}: {
+export const logEvent = (params: {
     event: string;
     level: LogLevel;
     source: LogSource;
     data?: Record<string, unknown>;
+    orgSubdomain?: string;
 }) => {
+    const { event, level, source, data, orgSubdomain } = params;
     const token = Bun.env.TELEGRAM_BOT_TOKEN;
     const chatId = Bun.env.TELEGRAM_CHAT_ID;
     const topicId = TOPIC_IDS[level];
@@ -39,6 +36,17 @@ export const logEvent = ({
         `🕐 ${new Date().toISOString()}`,
         data ? `\`\`\`\n${JSON.stringify(data, null, 2)}\n\`\`\`` : '',
     ].join('\n');
+
+    // Structured JSON log for Promtail/Loki org-level filtering
+    const structuredLog: Record<string, unknown> = {
+        level,
+        event,
+        source,
+        ts: new Date().toISOString(),
+    };
+    if (orgSubdomain) structuredLog.org_subdomain = orgSubdomain;
+    if (data) structuredLog.data = data;
+    console.log(JSON.stringify(structuredLog));
 
     // Fire-and-forget: Ana iş akışını bloklamaz
     fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
