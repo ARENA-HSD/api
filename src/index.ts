@@ -29,6 +29,7 @@ import { trackSocketOpen, trackSocketClose } from './core/pubsub/broadcaster';
 import { rateLimit } from 'elysia-rate-limit';
 import { handleSetNickname } from './modules/games/games.service';
 import { extractWebSocketMeta, sanitizeCloseReason } from './shared/helpers/ws-observability.helper';
+import { startOrgMetricsCollector } from './lib/org-metrics-collector';
 
 // ✅ Environment Variable Validation
 const requiredEnvVars = ['DATABASE_URL', 'REDIS_URL', 'JWT_SECRET'];
@@ -466,3 +467,6 @@ setInterval(async () => {
   if (count > 0) console.log(`🧹 ${count} expired invitation(s) cleaned up`);
 }, 60 * 60 * 1000);
 cleanupExpiredInvitations();
+
+// Organizasyon metriklerini periyodik olarak topla (Prometheus için)
+startOrgMetricsCollector();

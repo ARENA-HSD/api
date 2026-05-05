@@ -11,7 +11,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   .use(jwtPlugin({ name: "jwt", secret: jwtConfig.secret }))
 
   // Middleware to check WEB_ADMIN role on all admin routes
-  .onBeforeHandle(async ({ set, bearer, cookie, jwt }) => {
+  .onBeforeHandle(async ({ headers,  set, bearer, cookie, jwt  }) => {
     const auth = await requireAuth(jwt, bearer, cookie, set);
     if (!auth) {
       set.status = 401;
@@ -27,8 +27,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
         event: "admin.access.denied",
         level: "WARNING",
         source: "code",
-        data: { userId: auth.sub },
-      });
+        data: { userId: auth.sub }, orgSubdomain: headers['x-organization-domain'] });
       return { success: false, message: "Access denied: WEB_ADMIN role required" };
     }
   })
@@ -36,7 +35,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // GET /admin/info - Dashboard summary info
   .get(
     "/info",
-    async ({ set }) => {
+    async ({ headers,  set  }) => {
       try {
         const info = await adminService.getAdminInfo();
 
@@ -51,8 +50,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch admin info" };
       }
     },
@@ -83,7 +81,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // GET /admin/organizations - List all organizations
   .get(
     "/organizations",
-    async ({ set, query }) => {
+    async ({ headers,  set, query  }) => {
       try {
         const limit = Math.min(parseInt(query.limit || "20"), 100);
         const offset = Math.max(parseInt(query.offset || "0"), 0);
@@ -104,8 +102,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch organizations" };
       }
     },
@@ -132,7 +129,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // PATCH /admin/organizations/:orgId - Update organization
   .patch(
     "/organizations/:orgId",
-    async ({ set, params, body }) => {
+    async ({ headers,  set, params, body  }) => {
       try {
         const updated = await adminService.updateOrganizationAsAdmin(
           params.orgId,
@@ -163,8 +160,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to update organization" };
       }
     },
@@ -200,7 +196,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // DELETE /admin/organizations/:orgId - Delete organization
   .delete(
     "/organizations/:orgId",
-    async ({ set, params }) => {
+    async ({ headers,  set, params  }) => {
       try {
         const deleted = await adminService.deleteOrganizationAsAdmin(
           params.orgId
@@ -223,8 +219,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to delete organization" };
       }
     },
@@ -252,7 +247,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // GET /admin/users - List all users
   .get(
     "/users",
-    async ({ set, query }) => {
+    async ({ headers,  set, query  }) => {
       try {
         const limit = Math.min(parseInt(query.limit || "20"), 100);
         const offset = Math.max(parseInt(query.offset || "0"), 0);
@@ -270,8 +265,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch users" };
       }
     },
@@ -298,7 +292,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // GET /admin/users/search - Search users
   .get(
     "/users/search",
-    async ({ set, query }) => {
+    async ({ headers,  set, query  }) => {
       try {
         if (!query.q || query.q.trim().length === 0) {
           set.status = 400;
@@ -334,8 +328,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to search users" };
       }
     },
@@ -363,7 +356,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // PATCH /admin/users/:userId - Update user
   .patch(
     "/users/:userId",
-    async ({ set, params, body }) => {
+    async ({ headers,  set, params, body  }) => {
       try {
         const updated = await adminService.updateUserAsAdmin(
           params.userId,
@@ -403,8 +396,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to update user" };
       }
     },
@@ -435,7 +427,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
   // DELETE /admin/users/:userId - Delete user
   .delete(
     "/users/:userId",
-    async ({ set, params }) => {
+    async ({ headers,  set, params  }) => {
       try {
         const deleted = await adminService.deleteUserAsAdmin(params.userId);
 
@@ -456,8 +448,7 @@ export const adminRoutes = new Elysia({ prefix: "/admin" })
           event: "admin.db.error",
           level: "ERROR",
           source: "system",
-          data: { error: error instanceof Error ? error.message : "unknown" },
-        });
+          data: { error: error instanceof Error ? error.message : "unknown" }, orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to delete user" };
       }
     },

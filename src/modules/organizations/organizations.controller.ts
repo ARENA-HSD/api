@@ -14,7 +14,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // POST /org - Create organization
   .post(
     "/",
-    async ({ set, body, bearer, cookie, jwt }) => {
+    async ({ headers,  set, body, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -43,7 +43,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to create organization" };
       }
     },
@@ -79,7 +79,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // GET /org - Get all organizations for authenticated user
   .get(
     "/",
-    async ({ set, bearer, cookie, jwt }) => {
+    async ({ headers,  set, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -93,7 +93,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         };
       } catch (error) {
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch organizations" };
       }
     },
@@ -115,7 +115,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // GET  - Get organization by subdomain (PUBLIC)
   .get(
     "/:orgDomain",
-    async ({ set, params }) => {
+    async ({ headers,  set, params  }) => {
       try {
         const organization = await orgService.getOrganizationByDomain(
           params.orgDomain
@@ -132,7 +132,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         };
       } catch (error) {
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch organization" };
       }
     },
@@ -156,7 +156,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // PATCH  - Update organization
   .patch(
     "/:orgDomain",
-    async ({ set, params, body, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -193,7 +193,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
             error.message.startsWith("Only Super Admin") ||
             error.message.startsWith("Only Super Admin or Admin")) {
             set.status = 403;
-            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
             return { success: false, message: error.message };
           }
           if (error.message === "New subdomain already exists") {
@@ -206,7 +206,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to update organization" };
       }
     },
@@ -241,7 +241,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // DELETE  - Delete organization
   .delete(
     "/:orgDomain",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -266,12 +266,12 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
           if (error.message === "Only the organization owner can delete it") {
             set.status = 403;
-            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+            logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
             return { success: false, message: error.message };
           }
         }
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to delete organization" };
       }
     },
@@ -298,7 +298,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // GET  - List members
   .get(
     "/:orgDomain/members",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -314,7 +314,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN" && role !== "ADMIN") {
         set.status = 403;
-        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Only Super Admin or Admin can view members" };
       }
 
@@ -323,7 +323,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
         return { success: true, data: { members } };
       } catch (error) {
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to fetch members" };
       }
     },
@@ -346,7 +346,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // PATCH  - Change member role
   .patch(
     "/:orgDomain/members/:userId",
-    async ({ set, params, body, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -362,7 +362,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
-        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Only Super Admin can change member roles" };
       }
 
@@ -397,7 +397,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to update member role" };
       }
     },
@@ -426,7 +426,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
   // DELETE  - Remove member
   .delete(
     "/:orgDomain/members/:userId",
-    async ({ set, params, bearer, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer, cookie, jwt  }) => {
       const auth = await requireAuth(jwt, bearer, cookie, set);
       if (!auth) {
         return { success: false, message: "Unauthorized" };
@@ -442,7 +442,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
-        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+        logEvent({ event: 'org.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Only Super Admin can remove members" };
       }
 
@@ -469,7 +469,7 @@ export const orgRoutes = new Elysia({ prefix: "/org" })
           }
         }
         set.status = 500;
-        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } });
+        logEvent({ event: 'org.db.error', level: 'ERROR', source: 'system', data: { error: error instanceof Error ? error.message : 'unknown' } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Failed to remove member" };
       }
     },

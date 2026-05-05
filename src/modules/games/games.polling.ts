@@ -19,6 +19,7 @@ import { Elysia, t } from 'elysia';
 import { redis } from '../../core/cache/repositories/game.repository';
 import { publish, trackSocketOpen, trackSocketClose } from '../../core/pubsub/broadcaster';
 import { logEvent } from '../../shared/helpers/log.helper';
+import { activePollingConnections } from '../../lib/metrics';
 
 // ============================================================================
 // PollSocketAdapter — ws-compatible facade
@@ -79,11 +80,31 @@ export class PollSocketAdapter {
 }
 
 // In-memory map of active polling adapters (per-process)
-const activeAdapters = new Map<string, PollSocketAdapter>();
+// Maps pollId -> { adapter, lastAccessed }
+const activeAdapters = new Map<string, { adapter: PollSocketAdapter, lastAccessed: number }>();
 
 export function getAdapter(pollId: string): PollSocketAdapter | undefined {
-    return activeAdapters.get(pollId);
+    const record = activeAdapters.get(pollId);
+    if (record) {
+        record.lastAccessed = Date.now();
+        return record.adapter;
+    }
+    return undefined;
 }
+
+// Background cleanup for abandoned polling sessions (avoids memory/metric leak)
+setInterval(() => {
+    const now = Date.now();
+    for (const [pollId, record] of activeAdapters.entries()) {
+        if (now - record.lastAccessed > SESSION_TTL * 1000) {
+            trackSocketClose(record.adapter.id);
+            unsubscribePoll(pollId);
+            activeAdapters.delete(pollId);
+            activePollingConnections.dec();
+            redis.del(metaKey(pollId), outboxKey(pollId), subsKey(pollId)).catch(() => {});
+        }
+    }
+}, 60 * 1000); // Check every minute
 
 // ============================================================================
 // Redis Pub/Sub Forwarder
@@ -210,8 +231,9 @@ export const pollingRoutes = new Elysia({ prefix: '/poll' })
         });
 
         const adapter = new PollSocketAdapter(pollId, socketId, headers);
-        activeAdapters.set(pollId, adapter);
+        activeAdapters.set(pollId, { adapter, lastAccessed: Date.now() });
         trackSocketOpen(socketId);
+        activePollingConnections.inc();
 
         // Store metadata in Redis
         await redis.hset(metaKey(pollId), {
@@ -237,7 +259,7 @@ export const pollingRoutes = new Elysia({ prefix: '/poll' })
     .post('/send', async ({ body }) => {
         const { pollId, type, data } = body as { pollId: string; type: string; data: any };
 
-        const adapter = activeAdapters.get(pollId);
+        const adapter = getAdapter(pollId);
         if (!adapter) {
             return { error: 'Invalid or expired polling session' };
         }
@@ -268,7 +290,7 @@ export const pollingRoutes = new Elysia({ prefix: '/poll' })
     .get('/receive/:pollId', async ({ params }) => {
         const { pollId } = params;
 
-        const adapter = activeAdapters.get(pollId);
+        const adapter = getAdapter(pollId);
         if (!adapter) {
             return { messages: [], expired: true };
         }
@@ -331,11 +353,13 @@ export const pollingRoutes = new Elysia({ prefix: '/poll' })
     // ---- POST /poll/disconnect ----
     .post('/disconnect', async ({ body }) => {
         const { pollId } = body as { pollId: string };
-        const adapter = activeAdapters.get(pollId);
-        if (adapter) {
+        const record = activeAdapters.get(pollId);
+        if (record) {
+            const adapter = record.adapter;
             trackSocketClose(adapter.id);
             unsubscribePoll(pollId);
             activeAdapters.delete(pollId);
+            activePollingConnections.dec();
 
             // Clean up Redis
             await redis.del(metaKey(pollId), outboxKey(pollId), subsKey(pollId)).catch(() => {});

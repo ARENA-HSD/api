@@ -14,7 +14,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
   //  POST — Create invitation -
   .post(
     "/",
-    async ({ set, params, body, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, params, body, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Unauthorized" };
@@ -30,7 +30,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
       const role = await getUserRoleInOrg(auth.sub, orgId);
       if (role !== "SUPER_ADMIN") {
         set.status = 403;
-        logEvent({ event: 'invitation.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } });
+        logEvent({ event: 'invitation.access.denied', level: 'WARNING', source: 'code', data: { userId: auth.sub, orgDomain: params.orgDomain } , orgSubdomain: headers['x-organization-domain'] });
         return { success: false, message: "Only Super Admin can send invitations" };
       }
 
@@ -74,7 +74,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
   //  DELETE  — Cancel ─
   .delete(
     "/:invitationId",
-    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Unauthorized" };
@@ -119,7 +119,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
   //  GET  — Get by ID ─
   .get(
     "/:invitationId",
-    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Unauthorized" };
@@ -164,7 +164,7 @@ export const invitationsRoutes = new Elysia({ prefix: "/org/:orgDomain/invitatio
   //  GET  — List all ─
   .get(
     "/",
-    async ({ set, params, bearer: bearerToken, cookie, jwt }) => {
+    async ({ headers,  set, params, bearer: bearerToken, cookie, jwt  }) => {
       // 1. Auth
       const auth = await requireAuth(jwt, bearerToken, cookie, set);
       if (!auth) return { success: false, message: "Unauthorized" };

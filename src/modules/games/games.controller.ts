@@ -189,7 +189,7 @@ export const gamesRoutes = new Elysia({ prefix: '/games' })
    */
   .delete(
     '/:id',
-    async ({ params, set, bearer, jwt }) => {
+    async ({ headers,  params, set, bearer, jwt  }) => {
       try {
         // Verify JWT
         if (!bearer) {
