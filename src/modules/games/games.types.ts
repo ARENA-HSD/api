@@ -19,6 +19,7 @@ export interface GameState {
     hostSessionToken: string;
     totalAnswers: number;
     quizId: string;
+    orgSubdomain: string;
     totalPlayers: number;
     totalQuestions: number;
     currentPhase: GamePhase;

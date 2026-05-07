@@ -106,9 +106,11 @@ services:
     image: prom/prometheus:latest
     container_name: arena-prometheus
     restart: unless-stopped
+    user: root
     volumes:
       - ./config/prometheus.yml:/etc/prometheus/prometheus.yml
       - prometheus_data_prod:/prometheus
+      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - arena-network
     logging:

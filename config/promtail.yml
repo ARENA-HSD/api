@@ -47,7 +47,7 @@ scrape_configs:
         
       - source_labels: ['__meta_docker_container_name']
         regex: '^/(.+)$'
-        target_label: 'service.name'
+        target_label: 'service_name'
 
       # Docker Compose service adını ekle (opsiyonel, ek filtreleme için)
       - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
@@ -63,11 +63,14 @@ scrape_configs:
       - match:
           selector: '{container=~"arena-backend.*"}'
           stages:
+            # Drop errors if the log is not valid JSON
             - json:
                 expressions:
                   org_subdomain: org_subdomain
                   level: level
                   event: event
+                drop_invalid_labels: true
+            # Sadece eşleşen ve boş olmayan değerleri label olarak ekler
             - labels:
                 org_subdomain:
                 level:
