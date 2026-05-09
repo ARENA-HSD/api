@@ -10,7 +10,9 @@ import {
     organizationsTotal,
     organizationMembersTotal,
     organizationQuizzesTotal,
+    activeGamePlayers,
 } from './metrics';
+import { redis, countActivePlayers, getGameState } from '../core/cache/repositories/game.repository';
 
 const COLLECTION_INTERVAL_MS = 60_000; // 60 seconds
 
@@ -57,6 +59,24 @@ async function collectOrgMetrics(): Promise<void> {
             organizationQuizzesTotal
                 .labels(org.subdomain, org.name)
                 .set(quizResult?.count ?? 0);
+        }
+
+        // 3. Collect active game players from Redis
+        activeGamePlayers.reset();
+        const gameKeys = await redis.keys('game:*:state');
+        for (const key of gameKeys) {
+            // Extract pin from key `game:{pin}:state`
+            const pinMatch = key.match(/^game:([^:]+):state$/);
+            if (!pinMatch) continue;
+            const pin = pinMatch[1];
+            
+            const state = await getGameState(pin);
+            if (state) {
+                const activeCount = await countActivePlayers(pin);
+                activeGamePlayers
+                    .labels(state.orgSubdomain || 'system', state.quizId, pin)
+                    .set(activeCount);
+            }
         }
     } catch (error) {
         console.error('Failed to collect organization metrics:', error);

@@ -135,6 +135,7 @@ export async function createGame(
             questions: {
                 orderBy: (questions, { asc }) => [asc(questions.orderIndex)],
             },
+            organization: true,
         },
     });
 
@@ -175,13 +176,13 @@ export async function createGame(
 
     await GamesHelper.loadAnswerKey(pin, questionData);
 
-    // 4. Create game state in Redis
     await GamesHelper.createGameState(
         pin,
         quizId,
         quiz.defaultMode,
         '', // hostSocketId will be set when host connects
-        questionData.length
+        questionData.length,
+        quiz.organization?.subdomain || 'system'
     );
 
     return {
