@@ -1,4 +1,5 @@
 {
+  "uid": "arena_dashboard_v1",
   "annotations": [
     {
       "kind": "AnnotationQuery",
@@ -464,7 +465,7 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "arena_organization_members_total",
+                      "expr": "arena_organization_members_total{org_subdomain=~\"$org_subdomain\"}",
                       "instant": true,
                       "legendFormat": "{{org_name}}"
                     },
@@ -507,7 +508,7 @@
               "colorMode": "value",
               "graphMode": "none",
               "justifyMode": "auto",
-              "orientation": "horizontal",
+              "orientation": "auto",
               "percentChangeColorMode": "standard",
               "reduceOptions": {
                 "calcs": [
@@ -517,8 +518,8 @@
                 "values": false
               },
               "showPercentChange": false,
-              "textMode": "auto",
-              "wideLayout": true
+              "textMode": "value_and_name",
+              "wideLayout": false
             }
           },
           "version": "13.0.1"
@@ -544,7 +545,7 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "arena_organization_quizzes_total",
+                      "expr": "arena_organization_quizzes_total{org_subdomain=~\"$org_subdomain\"}",
                       "instant": true,
                       "legendFormat": "{{org_name}}"
                     },
@@ -587,7 +588,7 @@
               "colorMode": "value",
               "graphMode": "none",
               "justifyMode": "auto",
-              "orientation": "horizontal",
+              "orientation": "auto",
               "percentChangeColorMode": "standard",
               "reduceOptions": {
                 "calcs": [
@@ -597,8 +598,8 @@
                 "values": false
               },
               "showPercentChange": false,
-              "textMode": "auto",
-              "wideLayout": true
+              "textMode": "value_and_name",
+              "wideLayout": false
             }
           },
           "version": "13.0.1"
