@@ -1176,7 +1176,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "arena_organization_members_total{org_subdomain=~\"$org_subdomain\"}",
+          "expr": "sum(arena_organization_members_total{org_subdomain=~\"$org_subdomain\"})",
           "instant": true,
           "legendFormat": "{{org_name}}",
           "refId": "A"
@@ -1259,7 +1259,7 @@
             "uid": "Prometheus"
           },
           "editorMode": "code",
-          "expr": "arena_organization_quizzes_total{org_subdomain=~\"$org_subdomain\"}",
+          "expr": "sum(arena_organization_quizzes_total{org_subdomain=~\"$org_subdomain\"})",
           "instant": true,
           "legendFormat": "{{org_name}}",
           "refId": "A"
