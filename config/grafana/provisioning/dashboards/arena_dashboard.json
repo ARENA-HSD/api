@@ -1276,21 +1276,13 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": 0
-              },
-              {
-                "color": "green",
-                "value": 1
-              }
-            ]
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 10,
+            "gradientMode": "none"
           }
         },
         "overrides": []
@@ -1303,23 +1295,16 @@
       },
       "id": 205,
       "options": {
-        "colorMode": "value",
-        "graphMode": "none",
-        "justifyMode": "auto",
-        "orientation": "horizontal",
-        "percentChangeColorMode": "standard",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showPercentChange": false,
-        "textMode": "auto",
-        "wideLayout": true
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
-      "pluginVersion": "12.4.1",
       "targets": [
         {
           "datasource": {
@@ -1328,13 +1313,13 @@
           },
           "editorMode": "code",
           "expr": "arena_active_game_players{org_subdomain=~\"$org_subdomain\"}",
-          "instant": true,
-          "legendFormat": "Quiz: {{quiz_id}} (PIN: {{pin}})",
+          "instant": false,
+          "legendFormat": "{{org_name}} - Quiz: {{quiz_id}} (PIN: {{pin}})",
           "refId": "A"
         }
       ],
       "title": "\ud83c\udfae Active Players per Quiz",
-      "type": "stat"
+      "type": "timeseries"
     },
     {
       "datasource": {
