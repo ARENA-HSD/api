@@ -58,7 +58,8 @@ export interface ImportQuestionsRequest {
         mediaUrl?: string; // from JSON
         timeLimit: number;
         points?: number;
-        correctIndex: number;
+        questionType: 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE';
+        correctAnswer: number[];
         options: QuestionOption[];
     }>;
 }
@@ -321,7 +322,8 @@ export async function exportQuiz(
             mediaUrl: q.mediaUrl, // Keep URL if exists
             timeLimit: q.timeLimit,
             points: q.points,
-            correctIndex: q.correctIndex,
+            questionType: q.questionType as 'MULTIPLE_CHOICE' | 'TRUE_FALSE' | 'MULTI_SELECT' | 'ORDERING' | 'RANGE',
+            correctAnswer: q.correctAnswer as number[],
             options: q.options
         }))
     };
@@ -332,19 +334,6 @@ export async function exportQuiz(
         data: exportData
     };
 }
-
-const sanitizeHtml = (str: string) => {
-    return str.replace(/[&<>"']/g, (m) => {
-        switch (m) {
-            case '&': return '&amp;';
-            case '<': return '&lt;';
-            case '>': return '&gt;';
-            case '"': return '&quot;';
-            case "'": return '&#39;';
-            default: return m;
-        }
-    });
-};
 
 /**
  * Import questions into an existing quiz
@@ -384,14 +373,15 @@ export async function importQuestions(
     if (body.questions && body.questions.length > 0) {
         const insertData = body.questions.map((q, idx) => ({
             quizId,
-            text: sanitizeHtml(q.text),
+            text: q.text,
             mediaUrl: q.mediaUrl || null,
             timeLimit: q.timeLimit,
             points: q.points || 1000,
-            correctIndex: q.correctIndex,
+            questionType: q.questionType,
+            correctAnswer: q.correctAnswer,
             orderIndex: nextOrderIndex + idx,
             options: q.options.map(opt => ({
-                text: sanitizeHtml(opt.text),
+                text: opt.text,
                 color: opt.color
             }))
         }));

@@ -86,8 +86,15 @@ export const questionsRoutes = new Elysia({
               t.Literal('white'),
               t.Literal('gray')
             ]),
-          }), { minItems: 4, maxItems: 4 }),
-        correctIndex: t.Number({ minimum: 0, maximum: 3 }),
+          }), { minItems: 0, maxItems: 10 }),
+        questionType: t.Union([
+          t.Literal('MULTIPLE_CHOICE'),
+          t.Literal('TRUE_FALSE'),
+          t.Literal('MULTI_SELECT'),
+          t.Literal('ORDERING'),
+          t.Literal('RANGE')
+        ]),
+        correctAnswer: t.Array(t.Number()),
         orderIndex: t.Number({ minimum: 0 }),
       }),
       response: t.Object({
@@ -297,8 +304,15 @@ export const questionsRoutes = new Elysia({
               t.Literal('white'),
               t.Literal('gray')
             ]),
-          }), { minItems: 4, maxItems: 4 }),
-        correctIndex: t.Optional(t.Number({ minimum: 0, maximum: 3 })),
+          }), { minItems: 0, maxItems: 10 }),
+        questionType: t.Optional(t.Union([
+          t.Literal('MULTIPLE_CHOICE'),
+          t.Literal('TRUE_FALSE'),
+          t.Literal('MULTI_SELECT'),
+          t.Literal('ORDERING'),
+          t.Literal('RANGE')
+        ])),
+        correctAnswer: t.Optional(t.Array(t.Number())),
         orderIndex: t.Optional(t.Number({ minimum: 0 })),
       }),
       response: t.Object({

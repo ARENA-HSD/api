@@ -458,10 +458,17 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
         questions: t.Array(
           t.Object({
             text: t.String({ minLength: 5, maxLength: 1000 }),
+            questionType: t.Union([
+              t.Literal('MULTIPLE_CHOICE'),
+              t.Literal('TRUE_FALSE'),
+              t.Literal('MULTI_SELECT'),
+              t.Literal('ORDERING'),
+              t.Literal('RANGE')
+            ]),
             mediaUrl: t.Optional(t.Union([t.String({ format: 'uri', pattern: '^https?:\\/\\/.+', maxLength: 500 }), t.Null()])),
             timeLimit: t.Number({ minimum: 10, maximum: 120 }),
             points: t.Optional(t.Number({ minimum: 100, maximum: 1000 })),
-            correctIndex: t.Number({ minimum: 0, maximum: 3 }),
+            correctAnswer: t.Array(t.Number()),
             options: t.Array(
               t.Object({
                 text: t.String({ minLength: 1, maxLength: 200 }),
@@ -479,7 +486,7 @@ export const quizzesRoutes = new Elysia({ prefix: '/org/:orgDomain/quizzes' })
                   t.Literal('gray')
                 ]),
               }),
-              { minItems: 4, maxItems: 4 }
+              { minItems: 0, maxItems: 10 }
             )
           }),
           { maxItems: 50 }
